@@ -55,7 +55,6 @@ void expand_tilde(const char *input_path, char *expanded_path, size_t size) {
 
 void generic_scan(const char *path)
 {
-
     scan_directory(path);
 }
 int main() {
