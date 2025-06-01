@@ -209,19 +209,23 @@ void monitor_device(const char* mount_path)
     printf("Baseline inicial creado con %d archivos\n", initial_baseline.file_count);
 
     // Continuoues monitoring
-    while (1)
-    {
-        sleep(30);
-        printf("Monitoring...\n");
-        compare_state(&initial_baseline, mount_path);
-    }
+    printf("Monitoring...\n");
+    compare_state(&initial_baseline, mount_path);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     char mount_path[256];
-    printf("Input route: ");
-    scanf("%255s", mount_path);
+    
+    if (argc > 1)
+    {
+        strncpy(mount_path, argv[1], sizeof(mount_path));
+    }
+    else
+    {
+        printf("Input route: ");
+        scanf("%255s", mount_path);
+    }
 
     monitor_device(mount_path);
     return 0;
