@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <time.h>
+
 // Función recursiva para escanear directorios
 void scan_directory(const char *path) {
    DIR *dir = opendir(path);
@@ -33,6 +34,7 @@ void scan_directory(const char *path) {
    closedir(dir);
 }
 
+
 // Función para expandir '~' al directorio HOME
 void expand_tilde(const char *input_path, char *expanded_path, size_t size) {
    if (input_path[0] == '~') {
@@ -53,19 +55,5 @@ void expand_tilde(const char *input_path, char *expanded_path, size_t size) {
    }
 }
 
-void generic_scan(const char *path)
-{
-    scan_directory(path);
-}
-int main() {
-   // Cambia esta ruta a la carpeta donde se montan los dispositivos USB
-    char dir[256];
-    char expanded_dir[512];
 
 
-    scanf("%255s", dir);
-    expand_tilde(dir, expanded_dir, sizeof(expanded_dir));
-   printf("Escaneando directorio de montaje: %s\n", expanded_dir);
-   scan_directory(expanded_dir);
-   return 0;
-}
