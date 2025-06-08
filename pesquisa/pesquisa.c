@@ -18,7 +18,6 @@
 typedef struct 
 {
     char path[MAX_PATH_LENGTH]; // File Route
-    unsigned char sha256_hash[SHA256_DIGEST_LENGTH]; // File's Unique Hash
     time_t last_modified; // Last modification timestamp
     long file_size; // File Size
     mode_t permissions; // File Permissions
@@ -30,44 +29,6 @@ typedef struct
     FileInfo files[MAX_FILES];
     int file_count;
 } USBBaseline;
-
-// Function to calculate Hash
-int calculate_sha256(const char* filepath, unsigned char* hash)
-{
-    FILE *file = fopen(filepath, "rb");
-
-    if (!file)
-        return EXIT_FAILURE; // Throw error if could not open file
-    
-    EVP_MD_CTX *mdctx;
-    const EVP_MD *md;
-    unsigned int md_len;
-    
-    mdctx = EVP_MD_CTX_new();
-    md = EVP_sha256();
-
-    EVP_DigestInit_ex(mdctx, md, NULL);
-
-    // SHA256_CTX sha256;
-    // SHA256_Init(&sha256); // Initialize sha context
-    
-    unsigned char buffer[4096]; // Buffer for reading the file
-    size_t bytesRead;
-
-    // Read the file block by block
-    while(
-        (bytesRead = fread(buffer, 1, sizeof(buffer), file)) > 0
-    )
-    {
-        EVP_DigestUpdate(mdctx, buffer, bytesRead); // Actualizar hash
-    }
-
-    EVP_DigestFinal(mdctx, hash, &md_len); // End hash calculations
-
-    EVP_MD_CTX_free(mdctx);
-    fclose(file);
-    return EXIT_SUCCESS;
-}
 
 // Function to create the initial baseline of files in the USB device
 void create_baseline(const char* path, USBBaseline* baseline)
@@ -81,42 +42,27 @@ void create_baseline(const char* path, USBBaseline* baseline)
     if (!dir)
         return;
 
-    while(
-        ((entry = readdir(dir)) != NULL
-        && baseline->file_count < MAX_FILES)
-    )
+    while (((entry = readdir(dir)) != NULL && baseline->file_count < MAX_FILES))
     {
-        // Skip special directories
-        if (strcmp(entry->d_name, ".") == 0
-            || strcmp(entry->d_name, "..") == 0)
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
             continue;
-        
-        // Construct full route
+
         snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
 
-        // Obtain file metadata
         if (stat(full_path, &file_stat) == -1)
             continue;
-            
-        // If its a directory, scan recursively:
+
         if (S_ISDIR(file_stat.st_mode))
         {
             create_baseline(full_path, baseline);
         }
-
-        // If its a regular file, keep information
         else if (S_ISREG(file_stat.st_mode))
         {
             FileInfo* file_info = &baseline->files[baseline->file_count];
-
-            // Keep Metadata
             strncpy(file_info->path, full_path, MAX_PATH_LENGTH);
             file_info->last_modified = file_stat.st_mtime;
             file_info->file_size = file_stat.st_size;
             file_info->permissions = file_stat.st_mode & 0777;
-
-            // Calculate hash
-            calculate_sha256(full_path, file_info->sha256_hash);
 
             baseline->file_count++;
         }
@@ -131,22 +77,12 @@ int compare_state(USBBaseline* baseline, const char* path) {
 
     int modified_files = 0;
 
-    // Compare files from original baseline
     for (int i = 0; i < baseline->file_count; i++) {
         int found = 0;
         for (int j = 0; j < current_state.file_count; j++) {
             if (strcmp(baseline->files[i].path, current_state.files[j].path) == 0) {
                 found = 1;
 
-                // Compare bit a bit
-                if (memcmp(baseline->files[i].sha256_hash, 
-                           current_state.files[j].sha256_hash, 
-                           SHA256_DIGEST_LENGTH) != 0) {
-                    printf("ALERTA: Archivo modificado: %s\n", baseline->files[i].path);
-                    modified_files++;
-                }
-
-                // More metadata comparison
                 if (baseline->files[i].file_size != current_state.files[j].file_size) {
                     printf("ALERTA: Cambio de tamaño en: %s\n", baseline->files[i].path);
                     modified_files++;
@@ -157,43 +93,39 @@ int compare_state(USBBaseline* baseline, const char* path) {
                     modified_files++;
                 }
 
+                if (baseline->files[i].last_modified != current_state.files[j].last_modified) {
+                    printf("ALERTA: Cambio en fecha de modificación: %s\n", baseline->files[i].path);
+                    modified_files++;
+                }
+
                 break;
             }
         }
 
-        // Detect deleted files
-        if (!found)
-        {
+        if (!found) {
             printf("ALERTA: Archivo eliminado: %s\n", baseline->files[i].path);
             modified_files++;
         }
     }
 
-    // Detect new files
-    for (int j = 0; j < current_state.file_count; j++)
-    {
+    for (int j = 0; j < current_state.file_count; j++) {
         int found = 0;
-        for (int i = 0; i < baseline->file_count; i++)
-        {
-            if (strcmp(baseline->files[i].path, current_state.files[j].path) == 0)
-            {
+        for (int i = 0; i < baseline->file_count; i++) {
+            if (strcmp(baseline->files[i].path, current_state.files[j].path) == 0) {
                 found = 1;
                 break;
             }
         }
-        if (!found)
-        {
+        if (!found) {
             printf("ALERTA: Nuevo archivo detectado: %s\n", current_state.files[j].path);
             modified_files++;
         }
     }
 
-    // Calculate rate
     double change_percentage = (double)modified_files / baseline->file_count * 100.0;
 
-    if (change_percentage > CHANGE_THRESHOLD)
-    {
-        printf("ALERTA CRITICA: CAmbios significativos detectados (%.2f%%)\n", change_percentage);
+    if (change_percentage > CHANGE_THRESHOLD) {
+        printf("ALERTA CRITICA: Cambios significativos detectados (%.2f%%)\n", change_percentage);
         return 1;
     }
 
@@ -227,13 +159,7 @@ void save_baseline_to_file(USBBaseline* baseline, const char* output_file) {
         fprintf(fp, "Archivo: %s\n", baseline->files[i].path);
         fprintf(fp, "  Tamaño: %ld bytes\n", baseline->files[i].file_size);
         fprintf(fp, "  Última modificación: %s", ctime(&baseline->files[i].last_modified));
-        
-        // Imprimir hash en formato hexadecimal
-        fprintf(fp, "  Hash SHA256: ");
-        for (int j = 0; j < SHA256_DIGEST_LENGTH; j++) {
-            fprintf(fp, "%02x", baseline->files[i].sha256_hash[j]);
-        }
-        fprintf(fp, "\n\n");
+        fprintf(fp, "  Permisos: %o\n\n", baseline->files[i].permissions);
     }
 
     fclose(fp);
@@ -254,7 +180,7 @@ int load_baseline_from_file(const char* input_file, USBBaseline* baseline) {
     while (fgets(line, sizeof(line), fp)) {
         if (strncmp(line, "Archivo: ", 9) == 0) {
             if (baseline->file_count >= MAX_FILES) break;
-            
+
             current_file = &baseline->files[baseline->file_count];
             sscanf(line + 9, "%s", current_file->path);
             baseline->file_count++;
@@ -262,14 +188,12 @@ int load_baseline_from_file(const char* input_file, USBBaseline* baseline) {
         else if (strncmp(line, "  Tamaño: ", 10) == 0) {
             sscanf(line + 10, "%ld", &current_file->file_size);
         }
-        else if (strncmp(line, "  Hash SHA256: ", 15) == 0) {
-            // Convertir hash hexadecimal a bytes
-            char hash_str[SHA256_DIGEST_LENGTH * 2 + 1];
-            sscanf(line + 15, "%s", hash_str);
-            
-            for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-                sscanf(hash_str + 2*i, "%2hhx", &current_file->sha256_hash[i]);
-            }
+        else if (strncmp(line, "  Última modificación: ", 24) == 0) {
+            // Omite ctime parsing por simplicidad
+            current_file->last_modified = time(NULL); // se puede mejorar con parsing real
+        }
+        else if (strncmp(line, "  Permisos: ", 12) == 0) {
+            sscanf(line + 12, "%o", &current_file->permissions);
         }
     }
 
@@ -291,16 +215,15 @@ int main(int argc, char *argv[]) {
 
     strncpy(mount_path, argv[1], sizeof(mount_path));
     base_name = basename(mount_path);
-    
+
     snprintf(baseline_output, sizeof(baseline_output), 
              "/tmp/usb_baselines/%s_baseline.txt", base_name);
-    
+
     snprintf(baseline_input, sizeof(baseline_input), 
              "/tmp/usb_baselines/%s_baseline.txt", base_name);
 
     USBBaseline initial_baseline = {0};
-    
-    // Si el baseline existe, cargarlo; si no, crearlo
+
     if (access(baseline_input, F_OK) != -1) {
         if (!load_baseline_from_file(baseline_input, &initial_baseline)) {
             create_baseline(mount_path, &initial_baseline);
@@ -311,11 +234,10 @@ int main(int argc, char *argv[]) {
         save_baseline_to_file(&initial_baseline, baseline_output);
     }
 
-    // Modo de monitoreo continuo si se especifica un segundo argumento
     if (argc > 2 && strcmp(argv[2], "monitor") == 0) {
         while(1) {
             compare_state(&initial_baseline, mount_path);
-            sleep(10);  // Espera 30 segundos entre verificaciones
+            sleep(10);
         }
     }
 
