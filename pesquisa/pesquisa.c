@@ -8,6 +8,7 @@
 #include <openssl/sha.h>
 #include <sys/types.h>
 #include <openssl/evp.h>
+#include <libgen.h>  // Add this for basename()
 
 #define MAX_FILES 1000
 #define MAX_PATH_LENGTH 1024
@@ -213,20 +214,110 @@ void monitor_device(const char* mount_path)
     compare_state(&initial_baseline, mount_path);
 }
 
-int main(int argc, char *argv[])
-{
-    char mount_path[256];
-    
-    if (argc > 1)
-    {
-        strncpy(mount_path, argv[1], sizeof(mount_path));
-    }
-    else
-    {
-        printf("Input route: ");
-        scanf("%255s", mount_path);
+// Añadir esta función nueva
+void save_baseline_to_file(USBBaseline* baseline, const char* output_file) {
+    FILE *fp = fopen(output_file, "w");
+    if (!fp) {
+        perror("No se pudo abrir archivo de baseline");
+        return;
     }
 
-    monitor_device(mount_path);
+    fprintf(fp, "Baseline USB - Total archivos: %d\n", baseline->file_count);
+    for (int i = 0; i < baseline->file_count; i++) {
+        fprintf(fp, "Archivo: %s\n", baseline->files[i].path);
+        fprintf(fp, "  Tamaño: %ld bytes\n", baseline->files[i].file_size);
+        fprintf(fp, "  Última modificación: %s", ctime(&baseline->files[i].last_modified));
+        
+        // Imprimir hash en formato hexadecimal
+        fprintf(fp, "  Hash SHA256: ");
+        for (int j = 0; j < SHA256_DIGEST_LENGTH; j++) {
+            fprintf(fp, "%02x", baseline->files[i].sha256_hash[j]);
+        }
+        fprintf(fp, "\n\n");
+    }
+
+    fclose(fp);
+}
+
+// Function to load baseline
+int load_baseline_from_file(const char* input_file, USBBaseline* baseline) {
+    FILE *fp = fopen(input_file, "r");
+    if (!fp) {
+        perror("No se pudo abrir archivo de baseline");
+        return 0;
+    }
+
+    baseline->file_count = 0;
+    char line[MAX_PATH_LENGTH];
+    FileInfo* current_file = NULL;
+
+    while (fgets(line, sizeof(line), fp)) {
+        if (strncmp(line, "Archivo: ", 9) == 0) {
+            if (baseline->file_count >= MAX_FILES) break;
+            
+            current_file = &baseline->files[baseline->file_count];
+            sscanf(line + 9, "%s", current_file->path);
+            baseline->file_count++;
+        }
+        else if (strncmp(line, "  Tamaño: ", 10) == 0) {
+            sscanf(line + 10, "%ld", &current_file->file_size);
+        }
+        else if (strncmp(line, "  Hash SHA256: ", 15) == 0) {
+            // Convertir hash hexadecimal a bytes
+            char hash_str[SHA256_DIGEST_LENGTH * 2 + 1];
+            sscanf(line + 15, "%s", hash_str);
+            
+            for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+                sscanf(hash_str + 2*i, "%2hhx", &current_file->sha256_hash[i]);
+            }
+        }
+    }
+
+    fclose(fp);
+    return baseline->file_count;
+}
+
+// Modificar la función main para soportar monitoreo continuo
+int main(int argc, char *argv[]) {
+    char mount_path[256] = {0};
+    char baseline_output[512] = {0};
+    char baseline_input[512] = {0};
+    char *base_name;
+
+    if (argc < 2) {
+        printf("Uso: %s <ruta_usb> [modo]\n", argv[0]);
+        return 1;
+    }
+
+    strncpy(mount_path, argv[1], sizeof(mount_path));
+    base_name = basename(mount_path);
+    
+    snprintf(baseline_output, sizeof(baseline_output), 
+             "/tmp/usb_baselines/%s_baseline.txt", base_name);
+    
+    snprintf(baseline_input, sizeof(baseline_input), 
+             "/tmp/usb_baselines/%s_baseline.txt", base_name);
+
+    USBBaseline initial_baseline = {0};
+    
+    // Si el baseline existe, cargarlo; si no, crearlo
+    if (access(baseline_input, F_OK) != -1) {
+        if (!load_baseline_from_file(baseline_input, &initial_baseline)) {
+            create_baseline(mount_path, &initial_baseline);
+            save_baseline_to_file(&initial_baseline, baseline_output);
+        }
+    } else {
+        create_baseline(mount_path, &initial_baseline);
+        save_baseline_to_file(&initial_baseline, baseline_output);
+    }
+
+    // Modo de monitoreo continuo si se especifica un segundo argumento
+    if (argc > 2 && strcmp(argv[2], "monitor") == 0) {
+        while(1) {
+            compare_state(&initial_baseline, mount_path);
+            sleep(10);  // Espera 30 segundos entre verificaciones
+        }
+    }
+
     return 0;
 }
