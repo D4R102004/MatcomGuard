@@ -7,7 +7,7 @@
 
 // Función recursiva para escanear directorios
 void scan_directory(const char *path) {
-   DIR *dir = opendir(path);
+    DIR *dir = opendir(path);
    if (!dir) {
        perror("No se pudo abrir el directorio");
        return;
@@ -29,6 +29,7 @@ void scan_directory(const char *path) {
        } else if (S_ISREG(file_stat.st_mode)) {
            // Archivo regular: imprime ruta y fecha de modificación
            printf("Archivo: %s | Última modificación: %s", full_path, ctime(&file_stat.st_mtime));
+         
        }
    }
    closedir(dir);

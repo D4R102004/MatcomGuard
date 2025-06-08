@@ -29,27 +29,7 @@ static void funcion_boton1() {
         char message[256];
         snprintf(message, sizeof(message), "Analizando: %s\n", texto_ingresado);
         append_to_console(message);
-        
-        char expanded_path[1024];
-        expand_tilde(texto_ingresado, expanded_path, sizeof(expanded_path));
-        
-        // Redirige stdout a la consola
-        DIR *dir = opendir(expanded_path);
-        if (!dir) {
-            append_to_console("Error: No se pudo abrir el directorio\n");
-            return;
-        }
-        
-        struct dirent *entry;
-        while ((entry = readdir(dir)) != NULL) {
-            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) 
-                continue;
-                
-            char file_info[512];
-            snprintf(file_info, sizeof(file_info), "Archivo: %s\n", entry->d_name);
-            append_to_console(file_info);
-        }
-        closedir(dir);
+        scan_directory(texto_ingresado);
     } else {
         append_to_console("Error: No se ingresó ruta\n");
     }
