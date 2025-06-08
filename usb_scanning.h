@@ -1,8 +1,8 @@
 // usb_scanning.h
 #ifndef USB_SCANNING_H
 #define USB_SCANNING_H
-
-void scan_directory(const char *path);
+#include "message_queue.h"
+MessageQueue* scan_directory(const char *path);
 void expand_tilde(const char *input_path, char *expanded_path, size_t size);
 
 #endif

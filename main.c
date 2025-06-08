@@ -5,7 +5,8 @@
 #include <dirent.h>
 #include <time.h>
 #include <gtk/gtk.h>
-extern void scan_directory(const char *path);
+#include "message_queue.h"
+extern MessageQueue* scan_directory(const char *path);
 extern void expand_tilde(const char *input_path, char *expanded_path, size_t size);
 
 static gchar *texto_ingresado = NULL; // Variable global para almacenar el texto
@@ -29,14 +30,41 @@ static void funcion_boton1() {
         char message[256];
         snprintf(message, sizeof(message), "Analizando: %s\n", texto_ingresado);
         append_to_console(message);
-        scan_directory(texto_ingresado);
+        MessageQueue* result_queue =  scan_directory(texto_ingresado);
+        printf("\nResultados del escaneo (%d archivos):\n", mq_count(result_queue));
+while (!mq_is_empty(result_queue)) {
+    char* msg = mq_dequeue(result_queue);
+    
+    // Crear una nueva cadena con salto de línea
+    char* formatted_msg = malloc(strlen(msg) + 2); // +2 para \n y \0
+    if (formatted_msg) {
+        sprintf(formatted_msg, "%s\n", msg);  // Agregar \n al final
+        append_to_console(formatted_msg);
+        free(formatted_msg);
+    } else {
+        // Fallback: mostrar sin salto de línea
+        append_to_console(msg);
+    }
+    
+    free(msg);
+}
     } else {
         append_to_console("Error: No se ingresó ruta\n");
     }
 }
 
 static void funcion_boton2() {
-
+ // Crear un diálogo de alerta
+    GtkWidget *dialog = gtk_message_dialog_new(
+        NULL,  // Ventana padre (NULL para diálogo independiente)
+        GTK_DIALOG_MODAL,
+        GTK_MESSAGE_WARNING,
+        GTK_BUTTONS_OK,
+        "¡ALERTA! Se ha detectado actividad sospechosa"
+    );
+    
+    gtk_dialog_run(GTK_DIALOG(dialog));  // Mostrar y esperar a que el usuario cierre
+    gtk_widget_destroy(dialog);  // Cerrar el diálogo
 }
 
 static void funcion_boton3() {
