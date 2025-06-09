@@ -17,6 +17,6 @@ $(USB_SCAN): $(USB_SRC)
 	$(CC) -o $(USB_SCAN) $(USB_SRC)
 
 clean:
-	rm -f $(TARGET) $(USB_SCAN) $(LIST) /tmp/usb_baselines/*
+	rm -f $(TARGET) $(USB_SCAN) $(LIST) /tmp/usb_baselines/* /tmp/usb_alerts/*
 
 .PHONY: all clean
