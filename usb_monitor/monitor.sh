@@ -7,6 +7,23 @@ SCANNED_LIST="/tmp/scanned_usb.list"
 BASELINE_DIR="/tmp/usb_baselines"
 ALERT_DIR="/tmp/usb_alerts"
 
+# Cleanup function
+cleanup() {
+    echo "Cleaning up monitoring processes..."
+    
+    # Kill all child processes of this script
+    pkill -P $$
+    
+    # Remove the scanned list
+    rm -f "$SCANNED_LIST"
+    
+    echo "Monitoring stopped."
+    exit 0
+}
+
+# Trap signals to ensure cleanup
+trap cleanup SIGINT SIGTERM EXIT
+
 # Crear directorios si no existen
 mkdir -p "$BASELINE_DIR"
 mkdir -p "$ALERT_DIR"

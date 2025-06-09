@@ -11,6 +11,10 @@
 #include <time.h>
 #include <sys/types.h>
 #include <libgen.h>  // para basename
+#include <openssl/evp.h>  // Replace older SHA headers
+#include <openssl/err.h>
+// Add this to the top of the file with other includes
+#include <errno.h>
 
 #define MAX_FILES 1000
 #define MAX_PATH 1024
@@ -31,32 +35,50 @@ typedef struct {
     int count;
 } Baseline;
 
-// Función para calcular hash SHA-256
-void sha256sum(const char* filename, char* out_hash) {
+// Modify sha256sum to use hex representation
+void sha256sum(const char* filename, char* hash_str) {
+    EVP_MD_CTX *mdctx;
+    const EVP_MD *md;
+    unsigned int md_len;
+    FILE *file;
     unsigned char hash[SHA256_DIGEST_LENGTH];
     unsigned char buffer[4096];
-    SHA256_CTX sha256;
-    FILE* file = fopen(filename, "rb");
-    if (!file) {
-        strcpy(out_hash, "ERROR");
+    size_t bytes;
+
+    md = EVP_sha256();
+    mdctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(mdctx, md, NULL);
+
+    file = fopen(filename, "rb");
+    if (file == NULL) {
+        EVP_MD_CTX_free(mdctx);
+        strcpy(hash_str, "");  // Empty string on error
         return;
     }
 
-    SHA256_Init(&sha256);
-    size_t bytes;
-    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0)
-        SHA256_Update(&sha256, buffer, bytes);
-    SHA256_Final(hash, &sha256);
-    fclose(file);
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        EVP_DigestUpdate(mdctx, buffer, bytes);
+    }
 
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++)
-        sprintf(out_hash + (i * 2), "%02x", hash[i]);
-    out_hash[64] = 0;
+    EVP_DigestFinal_ex(mdctx, hash, &md_len);
+
+    // Convert to hex string
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(hash_str + (i * 2), "%02x", hash[i]);
+    }
+    hash_str[SHA256_DIGEST_LENGTH * 2] = '\0';
+
+    fclose(file);
+    EVP_MD_CTX_free(mdctx);
 }
 
 void scan_directory(const char* path, Baseline* base) {
     DIR* dir = opendir(path);
-    if (!dir) return;
+    if (!dir) {
+        // Add error logging
+        fprintf(stderr, "Error opening directory: %s\n", path);
+        return;
+    }
     printf("Escaneando: %s\n", path);
 
     struct dirent* entry;
@@ -65,6 +87,12 @@ void scan_directory(const char* path, Baseline* base) {
 
     while ((entry = readdir(dir)) && base->count < MAX_FILES) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        // Skip hidden directories and system directories
+        if (entry->d_name[0] == '.' || 
+            strcmp(entry->d_name, "System Volume Information") == 0 ||
+            strcmp(entry->d_name, ".Trash-1000") == 0)
             continue;
 
         snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
@@ -76,7 +104,11 @@ void scan_directory(const char* path, Baseline* base) {
         } else if (S_ISREG(st.st_mode)) {
             FileInfo* info = &base->files[base->count++];
             strncpy(info->path, full_path, MAX_PATH);
+            
+            // Clear hash before calculating
+            memset(info->hash, 0, MAX_HASH_LEN);
             sha256sum(full_path, info->hash);
+            
             info->modified_time = st.st_mtime;
             info->size = st.st_size;
             info->permissions = st.st_mode & 0777;
@@ -86,18 +118,49 @@ void scan_directory(const char* path, Baseline* base) {
     closedir(dir);
 }
 
+// Update save_baseline to ensure proper string handling
 void save_baseline(const char* filename, Baseline* base) {
+    // Ensure directory exists
+    char dir_path[MAX_PATH];
+    strncpy(dir_path, filename, MAX_PATH);
+    char* last_slash = strrchr(dir_path, '/');
+    if (last_slash) {
+        *last_slash = '\0';
+        mkdir(dir_path, 0755);
+    }
+
     FILE* f = fopen(filename, "w");
-    if (!f) return;
+    if (!f) {
+        perror("Error opening baseline file");
+        return;
+    }
 
     for (int i = 0; i < base->count; i++) {
         FileInfo* fi = &base->files[i];
-        fprintf(f, "%s|%s|%ld|%ld|%o|%d\n", fi->path, fi->hash, fi->modified_time, fi->size, fi->permissions, fi->owner);
+        // Escape potential special characters in path
+        char escaped_path[MAX_PATH * 2];
+        size_t j, k;
+        for (j = 0, k = 0; fi->path[j] != '\0' && k < sizeof(escaped_path) - 1; j++) {
+            if (fi->path[j] == '|') {
+                escaped_path[k++] = '\\';
+            }
+            escaped_path[k++] = fi->path[j];
+        }
+        escaped_path[k] = '\0';
+
+        fprintf(f, "%s|%s|%ld|%ld|%o|%d\n", 
+                escaped_path, 
+                fi->hash, 
+                fi->modified_time, 
+                fi->size, 
+                fi->permissions, 
+                fi->owner);
     }
 
     fclose(f);
 }
 
+// Update load_baseline to handle escaped paths
 int load_baseline(const char* filename, Baseline* base) {
     FILE* f = fopen(filename, "r");
     if (!f) return 0;
@@ -105,7 +168,41 @@ int load_baseline(const char* filename, Baseline* base) {
     char line[2048];
     while (fgets(line, sizeof(line), f) && base->count < MAX_FILES) {
         FileInfo* fi = &base->files[base->count++];
-        sscanf(line, "%[^|]|%[^|]|%ld|%ld|%o|%d\n", fi->path, fi->hash, &fi->modified_time, &fi->size, &fi->permissions, &fi->owner);
+        
+        // Reset all fields
+        memset(fi, 0, sizeof(FileInfo));
+
+        // Parse with more robust method
+        char* token = strtok(line, "|");
+        if (token) {
+            // Unescape path
+            size_t i, j;
+            for (i = 0, j = 0; token[i] != '\0'; i++, j++) {
+                if (token[i] == '\\' && token[i+1] == '|') {
+                    fi->path[j] = '|';
+                    i++;
+                } else {
+                    fi->path[j] = token[i];
+                }
+            }
+            fi->path[j] = '\0';
+        }
+
+        // Continue parsing other fields
+        token = strtok(NULL, "|");
+        if (token) strncpy(fi->hash, token, MAX_HASH_LEN);
+        
+        token = strtok(NULL, "|");
+        if (token) fi->modified_time = atol(token);
+        
+        token = strtok(NULL, "|");
+        if (token) fi->size = atol(token);
+        
+        token = strtok(NULL, "|");
+        if (token) fi->permissions = strtol(token, NULL, 8);
+        
+        token = strtok(NULL, "|");
+        if (token) fi->owner = atoi(token);
     }
 
     fclose(f);
@@ -121,9 +218,58 @@ int is_duplicate(const char* hash, FileInfo* files, int count, const char* exclu
     return 0;
 }
 
+// New function to log an alert
+void log_alert(const char* alert_file, const char* alert_message) {
+    FILE* log = fopen(alert_file, "a");
+    if (!log) {
+        perror("Error opening alert log file");
+        return;
+    }
+    
+    time_t now = time(NULL);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
+    
+    fprintf(log, "%s%s\n", timestamp, alert_message);
+    fclose(log);
+}
+
+// New function to check if an alert has been logged before
+int is_alert_logged(const char* alert_file, const char* alert_message) {
+    FILE* log = fopen(alert_file, "r");
+    if (!log) {
+        // If file doesn't exist, it means no alerts logged yet
+        return 0;
+    }
+
+    char line[2048];
+    while (fgets(line, sizeof(line), log)) {
+        // Remove newline if present
+        line[strcspn(line, "\n")] = 0;
+        
+        if (strstr(line, alert_message)) {
+            fclose(log);
+            return 1;  // Alert already logged
+        }
+    }
+    fclose(log);
+    return 0;
+}
+
 void check_for_anomalies(Baseline* baseline, Baseline* current) {
     int total = baseline->count;
     int suspicious = 0;
+
+    // Determine alert file path based on device name
+    char path_copy[MAX_PATH];
+    strncpy(path_copy, baseline->files[0].path, MAX_PATH - 1);
+    path_copy[MAX_PATH - 1] = '\0';
+    char* device_name = basename(path_copy);
+    char alert_file[512];
+    snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", device_name);
+
+    // Ensure the alerts directory exists
+    mkdir("/tmp/usb_alerts", 0755);
 
     for (int i = 0; i < total; i++) {
         FileInfo* old = &baseline->files[i];
@@ -136,34 +282,54 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
 
                 // Crecimiento inusual
                 if (old->size < 100*1024 && new->size > 500*1024*1024) {
-                    printf("ALERTA: %s creció de %ld a %ld bytes\n", new->path, old->size, new->size);
-                    suspicious++;
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: %s creció de %ld a %ld bytes", new->path, old->size, new->size);
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
                 }
 
                 // Cambio de extensión
                 char* ext_old = strrchr(old->path, '.');
                 char* ext_new = strrchr(new->path, '.');
                 if (ext_old && ext_new && strcmp(ext_old, ext_new) != 0) {
-                    printf("ALERTA: %s cambió de extensión (%s → %s)\n", new->path, ext_old, ext_new);
-                    suspicious++;
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: %s cambió de extensión (%s → %s)", new->path, ext_old, ext_new);
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
                 }
 
                 // Permisos peligrosos
                 if ((new->permissions & 0777) == 0777 && old->permissions != new->permissions) {
-                    printf("ALERTA: Permisos peligrosos en %s (%o → %o)\n", new->path, old->permissions, new->permissions);
-                    suspicious++;
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Permisos peligrosos en %s (%o → %o)", new->path, old->permissions, new->permissions);
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
                 }
 
                 // Cambio de propietario
                 if (old->owner != new->owner) {
-                    printf("ALERTA: Cambio de owner en %s (UID %d → %d)\n", new->path, old->owner, new->owner);
-                    suspicious++;
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Cambio de owner en %s (UID %d → %d)", new->path, old->owner, new->owner);
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
                 }
 
                 // Hash modificado (contenido)
                 if (strcmp(old->hash, new->hash) != 0) {
-                    printf("ALERTA: Contenido modificado en %s\n", new->path);
-                    suspicious++;
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Contenido modificado en %s", new->path);
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
                 }
 
                 break;
@@ -171,8 +337,12 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         }
 
         if (!found) {
-            printf("ALERTA: Archivo eliminado: %s\n", old->path);
-            suspicious++;
+            char alert_msg[1024];
+            snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Archivo eliminado: %s", old->path);
+            if (!is_alert_logged(alert_file, alert_msg)) {
+                log_alert(alert_file, alert_msg);
+                suspicious++;
+            }
         }
     }
 
@@ -187,19 +357,31 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         }
 
         if (!found) {
-            printf("ALERTA: Nuevo archivo: %s\n", current->files[j].path);
-            suspicious++;
+            char alert_msg[1024];
+            snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Nuevo archivo: %s", current->files[j].path);
+            if (!is_alert_logged(alert_file, alert_msg)) {
+                log_alert(alert_file, alert_msg);
+                suspicious++;
+            }
 
             if (is_duplicate(current->files[j].hash, current->files, current->count, current->files[j].path)) {
-                printf("ALERTA: Archivo duplicado detectado: %s\n", current->files[j].path);
-                suspicious++;
+                char dup_msg[1024];
+                snprintf(dup_msg, sizeof(dup_msg), "ALERTA: Archivo duplicado detectado: %s", current->files[j].path);
+                if (!is_alert_logged(alert_file, dup_msg)) {
+                    log_alert(alert_file, dup_msg);
+                    suspicious++;
+                }
             }
         }
     }
 
     double perc = 100.0 * suspicious / total;
     if (perc >= CHANGE_THRESHOLD) {
-        printf("ALERTA CRÍTICA: %d cambios sospechosos detectados (%.2f%%)\n", suspicious, perc);
+        char critical_msg[1024];
+        snprintf(critical_msg, sizeof(critical_msg), "ALERTA CRÍTICA: %d cambios sospechosos detectados (%.2f%%)", suspicious, perc);
+        if (!is_alert_logged(alert_file, critical_msg)) {
+            log_alert(alert_file, critical_msg);
+        }
     }
 }
 
