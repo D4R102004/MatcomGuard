@@ -256,17 +256,40 @@ int is_alert_logged(const char* alert_file, const char* alert_message) {
     return 0;
 }
 
+int are_files_similar(FileInfo* file1, FileInfo* file2) {
+    // Compare base names first
+    char* base1 = basename(file1->path);
+    char* base2 = basename(file2->path);
+
+    // If base names are different, they're not the same file
+    if (strcmp(base1, base2) != 0) {
+        return 0;
+    }
+
+    // Additional checks to reduce false positives
+    // Compare file hash to ensure content similarity
+    if (strcmp(file1->hash, file2->hash) == 0) {
+        return 1;
+    }
+
+    // Optional: Add directory path similarity check
+    char* dir1 = dirname(file1->path);
+    char* dir2 = dirname(file2->path);
+
+    // If directories are completely different, be more strict
+    if (strcmp(dir1, dir2) != 0) {
+        // Only consider as similar if file contents are identical
+        return (strcmp(file1->hash, file2->hash) == 0);
+    }
+
+    return 0;
+}
+
 void check_for_anomalies(Baseline* baseline, Baseline* current) {
     int total = baseline->count;
     int suspicious = 0;
 
-    // Determine alert file path based on device name
-    char path_copy[MAX_PATH];
-    strncpy(path_copy, baseline->files[0].path, MAX_PATH - 1);
-    path_copy[MAX_PATH - 1] = '\0';
-    char* device_name = basename(path_copy);
-    char alert_file[512];
-    snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", device_name);
+
 
     // Ensure the alerts directory exists
     mkdir("/tmp/usb_alerts", 0755);
@@ -280,6 +303,10 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
             if (strcmp(old->path, new->path) == 0) {
                 found = 1;
 
+                // Create alert file path based on individual file
+                char alert_file[512];
+                snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", basename(new->path));
+
                 // Crecimiento inusual
                 if (old->size < 100*1024 && new->size > 500*1024*1024) {
                     char alert_msg[1024];
@@ -291,11 +318,18 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                 }
 
                 // Cambio de extensión
+                char* base_old = basename(old->path);
+                char* base_new = basename(new->path);
                 char* ext_old = strrchr(old->path, '.');
                 char* ext_new = strrchr(new->path, '.');
-                if (ext_old && ext_new && strcmp(ext_old, ext_new) != 0) {
+
+                // Check if base names match and extensions are different
+                if (strcmp(base_old, base_new) == 0 && 
+                    ext_old && ext_new && 
+                    strcmp(ext_old, ext_new) != 0) {
                     char alert_msg[1024];
-                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: %s cambió de extensión (%s → %s)", new->path, ext_old, ext_new);
+                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: %s cambió de extensión (%s → %s)", 
+                            new->path, ext_old, ext_new);
                     if (!is_alert_logged(alert_file, alert_msg)) {
                         log_alert(alert_file, alert_msg);
                         suspicious++;
@@ -336,7 +370,11 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
             }
         }
 
+        // File deletion alert.
         if (!found) {
+            char alert_file[512];
+            snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", basename(old->path));
+            
             char alert_msg[1024];
             snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Archivo eliminado: %s", old->path);
             if (!is_alert_logged(alert_file, alert_msg)) {
@@ -357,6 +395,9 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         }
 
         if (!found) {
+            char alert_file[512];
+            snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", basename(current->files[j].path));
+
             char alert_msg[1024];
             snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Nuevo archivo: %s", current->files[j].path);
             if (!is_alert_logged(alert_file, alert_msg)) {
@@ -375,13 +416,14 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         }
     }
 
-    double perc = 100.0 * suspicious / total;
-    if (perc >= CHANGE_THRESHOLD) {
+    // Optional: Overall suspicious activity alert
+    if (suspicious > 0) {
+        char summary_file[512];
+        snprintf(summary_file, sizeof(summary_file), "/tmp/usb_alerts/overall_suspicious_activity.txt");
+        
         char critical_msg[1024];
-        snprintf(critical_msg, sizeof(critical_msg), "ALERTA CRÍTICA: %d cambios sospechosos detectados (%.2f%%)", suspicious, perc);
-        if (!is_alert_logged(alert_file, critical_msg)) {
-            log_alert(alert_file, critical_msg);
-        }
+        snprintf(critical_msg, sizeof(critical_msg), "ALERTA CRÍTICA: %d cambios sospechosos detectados", suspicious);
+        log_alert(summary_file, critical_msg);
     }
 }
 
