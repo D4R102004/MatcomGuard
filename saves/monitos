@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Directorio de monitores de dispositivos USB
+USB_MOUNT_DIR="/media/$USER"
+
+# Log file for tracking
+LOG_FILE="/tmp/usb_monitor.log"
+SCANNER_PATH="./usb_scanning"
+
+# Función para procesar nuevo dispositivo USB
+process_usb() {
+    local device_path="$1"
+    echo "$(date): USB detectado en: $device_path" >> "$LOG_FILE"
+    echo "Contenido del directorio:" >> "$LOG_FILE"
+    ls -la "$device_path" >> "$LOG_FILE"
+
+    # Verificar si el directorio no está vacío
+    if [ "$(ls -A "$device_path")" ]; then
+        echo "$(date): Realizando escaneo inicial..." >> "$LOG_FILE"
+        
+        # Imprimir rutas completas
+        echo "Rutas de programas:" >> "$LOG_FILE"
+        which matguard >> "$LOG_FILE"
+        which usb_scanning >> "$LOG_FILE"
+
+        # Escaneo con rutas absolutas
+        echo "$device_path" | "$SCANNER_PATH" "$device_path" >> "$LOG_FILE" 2>&1
+    else
+        echo "$(date): Directorio USB vacío, omitiendo escaneo" >> "$LOG_FILE"
+    fi
+}
+
+# Logging
+log_message() {
+    echo "$(date): $1" | tee -a "$LOG_FILE"
+}
+
+# Limpiar log
+> "$LOG_FILE"
+log_message "Iniciando monitor de USB"
+log_message "Directorio de montaje: $USB_MOUNT_DIR"
+
+# Monitoreo alternativo
+while true; do
+    log_message "Buscando dispositivos USB..."
+    for usb_dir in "$USB_MOUNT_DIR"/*; do 
+        if [ -d "$usb_dir" ]; then
+            process_usb "$usb_dir"
+        fi
+    done
+    sleep 10
+done
