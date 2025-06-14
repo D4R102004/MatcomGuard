@@ -97,7 +97,9 @@ void scan_directory(const char* path, Baseline* base) {
 
         snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
         if (stat(full_path, &st) == -1)
+        {
             continue;
+        }
 
         if (S_ISDIR(st.st_mode)) {
             scan_directory(full_path, base);
@@ -107,7 +109,6 @@ void scan_directory(const char* path, Baseline* base) {
             
             // Clear hash before calculating
             memset(info->hash, 0, MAX_HASH_LEN);
-            sha256sum(full_path, info->hash);
             
             info->modified_time = st.st_mtime;
             info->size = st.st_size;
@@ -148,9 +149,8 @@ void save_baseline(const char* filename, Baseline* base) {
         }
         escaped_path[k] = '\0';
 
-        fprintf(f, "%s|%s|%ld|%ld|%o|%d\n", 
+        fprintf(f, "%s|%ld|%ld|%o|%d\n", 
                 escaped_path, 
-                fi->hash, 
                 fi->modified_time, 
                 fi->size, 
                 fi->permissions, 
@@ -189,8 +189,6 @@ int load_baseline(const char* filename, Baseline* base) {
         }
 
         // Continue parsing other fields
-        token = strtok(NULL, "|");
-        if (token) strncpy(fi->hash, token, MAX_HASH_LEN);
         
         token = strtok(NULL, "|");
         if (token) fi->modified_time = atol(token);
@@ -356,15 +354,19 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                     }
                 }
 
-                // Hash modificado (contenido)
-                if (strcmp(old->hash, new->hash) != 0) {
+                // Check for modification time changes
+                if (old->modified_time != new->modified_time) {
                     char alert_msg[1024];
-                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Contenido modificado en %s", new->path);
+                    snprintf(alert_msg, sizeof(alert_msg), 
+                             "ALERTA: Archivo modificado: %s (Tiempo anterior: %ld, Tiempo actual: %ld)", 
+                             new->path, old->modified_time, new->modified_time);
+                    
                     if (!is_alert_logged(alert_file, alert_msg)) {
                         log_alert(alert_file, alert_msg);
                         suspicious++;
                     }
                 }
+
 
                 break;
             }
