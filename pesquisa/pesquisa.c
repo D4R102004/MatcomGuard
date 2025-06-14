@@ -4,8 +4,14 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <pwd.h>  // for getpwuid()
+#include <libgen.h>  // for basename()
 #include <pwd.h>
+
+#include <time.h>
+#include <float.h>
 #include <grp.h>
+#include <limits.h>  // for PATH_MAX
 #include <openssl/sha.h>
 #include <fcntl.h>
 #include <time.h>
@@ -15,6 +21,7 @@
 #include <openssl/err.h>
 // Add this to the top of the file with other includes
 #include <errno.h>
+#include <linux/limits.h>
 
 #define MAX_FILES 1000
 #define MAX_PATH 1024
@@ -207,49 +214,124 @@ int load_baseline(const char* filename, Baseline* base) {
     return 1;
 }
 
-int is_duplicate(const char* hash, FileInfo* files, int count, const char* exclude_path) {
+int is_duplicate(FileInfo* file, FileInfo* files, int count, const char* exclude_path) {
     for (int i = 0; i < count; i++) {
-        if (strcmp(hash, files[i].hash) == 0 && strcmp(exclude_path, files[i].path) != 0) {
-            return 1;
+        // Skip comparing the file with itself
+        if (strcmp(exclude_path, files[i].path) == 0) continue;
+        
+        // Comprehensive duplicate detection criteria:
+        // 1. Exact same file size
+        // 2. Similar modification times (within a small window)
+        // 3. Same permissions
+        // 4. Same owner
+        if (file->size == files[i].size &&
+            abs(file->modified_time - files[i].modified_time) <= 60 && // within 1 minute
+            file->permissions == files[i].permissions &&
+            file->owner == files[i].owner) {
+            
+            // Additional check to ensure it's not the exact same file
+            if (strcmp(file->path, files[i].path) != 0) {
+                return 1;  // Potential duplicate or very similar file found
+            }
         }
     }
-    return 0;
+    
+    return 0;  // No duplicates found
 }
 
 // New function to log an alert
 void log_alert(const char* alert_file, const char* alert_message) {
+    // Use a more robust method to prevent duplicate logging
+
     FILE* log = fopen(alert_file, "a");
-    if (!log) {
-        perror("Error opening alert log file");
-        return;
+    if (log) {
+        time_t now = time(NULL);
+        char timestamp[64];
+        strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
+        
+        fprintf(log, "%s%s\n", timestamp, alert_message);
+        fclose(log);
     }
     
-    time_t now = time(NULL);
-    char timestamp[64];
-    strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
-    
-    fprintf(log, "%s%s\n", timestamp, alert_message);
-    fclose(log);
 }
 
-// New function to check if an alert has been logged before
+#define MAX_ALERT_SIZE 8192
+
+// Función auxiliar para quitar el timestamp (asume formato [XXX])
+void strip_timestamp(char* alert) {
+    char* start = strchr(alert, ']');
+    if (start && *(start + 1) == ' ') {
+        memmove(alert, start + 2, strlen(start + 2) + 1); // +1 to copy null terminator
+    }
+}
+
+// Función para verificar si un mensaje ya está registrado
 int is_alert_logged(const char* alert_file, const char* alert_message) {
     FILE* log = fopen(alert_file, "r");
-    if (!log) {
-        // If file doesn't exist, it means no alerts logged yet
+    if (!log) return 0;
+
+    // Prepare a stripped-down version of the input message
+    char stripped_input[MAX_ALERT_SIZE];
+    const char* input_start = strstr(alert_message, "ALERTA:");
+    if (!input_start) input_start = strstr(alert_message, "ALERTA CRÍTICA:");
+    if (!input_start) {
+        fclose(log);
         return 0;
     }
-
-    char line[2048];
-    while (fgets(line, sizeof(line), log)) {
-        // Remove newline if present
-        line[strcspn(line, "\n")] = 0;
-        
-        if (strstr(line, alert_message)) {
-            fclose(log);
-            return 1;  // Alert already logged
+    
+    // Copy the core message, removing timestamp and minor variations
+    strncpy(stripped_input, input_start, MAX_ALERT_SIZE - 1);
+    stripped_input[MAX_ALERT_SIZE - 1] = '\0';
+    
+    // More aggressive stripping of variable details
+    char cleaned_input[MAX_ALERT_SIZE];
+    char* cleaned_ptr = cleaned_input;
+    char* stripped_ptr = stripped_input;
+    
+    while (*stripped_ptr) {
+        if (isdigit(*stripped_ptr)) {
+            // Skip precise numeric values
+            while (isdigit(*stripped_ptr) || *stripped_ptr == '.' || *stripped_ptr == '-' || 
+                   *stripped_ptr == ':' || *stripped_ptr == ' ') {
+                stripped_ptr++;
+            }
+            *cleaned_ptr++ = '#';  // Replace with a placeholder
+        } else {
+            *cleaned_ptr++ = *stripped_ptr++;
         }
     }
+    *cleaned_ptr = '\0';
+
+    // Read and compare existing alerts
+    char line[2048];
+    while (fgets(line, sizeof(line), log)) {
+        // Clean the existing line similarly
+        char cleaned_existing[MAX_ALERT_SIZE];
+        char* cleaned_existing_ptr = cleaned_existing;
+        char* line_ptr = line;
+        
+        while (*line_ptr) {
+            if (isdigit(*line_ptr)) {
+                // Skip precise numeric values
+                while (isdigit(*line_ptr) || *line_ptr == '.' || *line_ptr == '-' || 
+                       *line_ptr == ':' || *line_ptr == ' ') {
+                    line_ptr++;
+                }
+                *cleaned_existing_ptr++ = '#';
+            } else {
+                *cleaned_existing_ptr++ = *line_ptr++;
+            }
+        }
+        *cleaned_existing_ptr = '\0';
+
+        // Compare cleaned versions more strictly
+        if (strstr(cleaned_existing, cleaned_input) || 
+            strstr(cleaned_input, cleaned_existing)) {
+            fclose(log);
+            return 1;
+        }
+    }
+
     fclose(log);
     return 0;
 }
@@ -283,6 +365,28 @@ int are_files_similar(FileInfo* file1, FileInfo* file2) {
     return 0;
 }
 
+// Modify the basename matching logic to be more robust
+int is_same_file(const char* old_path, const char* new_path) {
+    // Use local buffers instead of strdup to avoid potential memory issues
+    char old_basename[PATH_MAX];
+    char new_basename[PATH_MAX];
+    
+    // Safely copy basename
+    strncpy(old_basename, basename(old_path), sizeof(old_basename) - 1);
+    strncpy(new_basename, basename(new_path), sizeof(new_basename) - 1);
+    old_basename[PATH_MAX - 1] = '\0';
+    new_basename[PATH_MAX - 1] = '\0';
+    
+    // Remove extension
+    char* old_dot = strrchr(old_basename, '.');
+    char* new_dot = strrchr(new_basename, '.');
+    
+    if (old_dot) *old_dot = '\0';
+    if (new_dot) *new_dot = '\0';
+    
+    return strcmp(old_basename, new_basename) == 0;
+}
+
 void check_for_anomalies(Baseline* baseline, Baseline* current) {
     int total = baseline->count;
     int suspicious = 0;
@@ -292,74 +396,134 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
     // Ensure the alerts directory exists
     mkdir("/tmp/usb_alerts", 0755);
 
+
+    // Track files that have been matched to prevent false positives
+    int* matched = calloc(current->count, sizeof(int));
+
+
     for (int i = 0; i < total; i++) {
         FileInfo* old = &baseline->files[i];
         int found = 0;
 
         for (int j = 0; j < current->count; j++) {
             FileInfo* new = &current->files[j];
-            if (strcmp(old->path, new->path) == 0) {
+
+            // Improved path matching to handle extension changes
+            char* old_basename = basename(old->path);
+            char* new_basename = basename(new->path);
+
+            // Check if basenames match, allowing for extension changes
+            if (is_same_file(old->path, new->path)) {
                 found = 1;
+                matched[j] = 1;
+            
 
                 // Create alert file path based on individual file
                 char alert_file[512];
                 snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", basename(new->path));
 
-                // Crecimiento inusual
-                if (old->size < 100*1024 && new->size > 500*1024*1024) {
-                    char alert_msg[1024];
-                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: %s creció de %ld a %ld bytes", new->path, old->size, new->size);
-                    if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
-                        suspicious++;
+                // Modify the size change detection section
+                if (old->size > 0 && new->size > 0) {
+                    // Calculate absolute and percentage size change
+                    long size_diff = llabs(new->size - old->size);
+                    double size_percentage_change = fabs((double)(new->size - old->size) / old->size) * 100.0;
+
+                    // More flexible size change detection
+                    // Trigger alert if:
+                    // 1. Absolute size change is large (e.g., more than 1MB)
+                    // 2. Percentage change is significant (e.g., more than 50%)
+                    if (size_diff > 1024 * 1024 || size_percentage_change > 50.0) {
+                        char alert_msg[1024];
+                        snprintf(alert_msg, sizeof(alert_msg), 
+                            "ALERTA: Cambio significativo de tamaño en %s (de %ld a %ld bytes, cambio: %.2f%%)", 
+                            new->path, old->size, new->size, size_percentage_change);
+                        
+                        if (!is_alert_logged(alert_file, alert_msg)) {
+                            log_alert(alert_file, alert_msg);
+                            suspicious++;
+                        }
                     }
                 }
 
-                // Cambio de extensión
-                char* base_old = basename(old->path);
-                char* base_new = basename(new->path);
-                char* ext_old = strrchr(old->path, '.');
-                char* ext_new = strrchr(new->path, '.');
-
-                // Check if base names match and extensions are different
-                if (strcmp(base_old, base_new) == 0 && 
-                    ext_old && ext_new && 
-                    strcmp(ext_old, ext_new) != 0) {
-                    char alert_msg[1024];
-                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: %s cambió de extensión (%s → %s)", 
-                            new->path, ext_old, ext_new);
-                    if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
-                        suspicious++;
-                    }
-                }
-
-                // Permisos peligrosos
-                if ((new->permissions & 0777) == 0777 && old->permissions != new->permissions) {
-                    char alert_msg[1024];
-                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Permisos peligrosos en %s (%o → %o)", new->path, old->permissions, new->permissions);
-                    if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
-                        suspicious++;
-                    }
-                }
-
-                // Cambio de propietario
-                if (old->owner != new->owner) {
-                    char alert_msg[1024];
-                    snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Cambio de owner en %s (UID %d → %d)", new->path, old->owner, new->owner);
-                    if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
-                        suspicious++;
-                    }
-                }
-
-                // Check for modification time changes
-                if (old->modified_time != new->modified_time) {
+                // Extension change detection with more context
+                char* old_ext = strrchr(old->path, '.');
+                char* new_ext = strrchr(new->path, '.');
+                
+                if ((old_ext == NULL && new_ext != NULL) || 
+                    (old_ext != NULL && new_ext == NULL) || 
+                    (old_ext != NULL && new_ext != NULL && strcmp(old_ext, new_ext) != 0)) {
                     char alert_msg[1024];
                     snprintf(alert_msg, sizeof(alert_msg), 
-                             "ALERTA: Archivo modificado: %s (Tiempo anterior: %ld, Tiempo actual: %ld)", 
-                             new->path, old->modified_time, new->modified_time);
+                        "ALERTA: Cambio de extensión en %s (%s → %s)", 
+                        new->path, 
+                        old_ext ? old_ext : "sin extensión", 
+                        new_ext ? new_ext : "sin extensión");
+                    
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
+                }
+
+                // Permissions change detection
+                if (old->permissions != new->permissions) {
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), 
+                        "ALERTA: Cambio de permisos en %s (%o → %o)", 
+                        new->path, old->permissions, new->permissions);
+                    
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
+                }
+
+                // Owner change detection with more robust checking
+                if (old->owner != new->owner) {
+                    // Get owner names for more context
+                    struct passwd *old_pw = getpwuid(old->owner);
+                    struct passwd *new_pw = getpwuid(new->owner);
+                    
+                    char old_owner_name[256] = "Unknown";
+                    char new_owner_name[256] = "Unknown";
+                    
+                    if (old_pw) strncpy(old_owner_name, old_pw->pw_name, sizeof(old_owner_name));
+                    if (new_pw) strncpy(new_owner_name, new_pw->pw_name, sizeof(new_owner_name));
+                    
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), 
+                        "ALERTA: Cambio de propietario en %s (de UID %d/%s a UID %d/%s)", 
+                        new->path, 
+                        old->owner, old_owner_name, 
+                        new->owner, new_owner_name);
+                    
+                    if (!is_alert_logged(alert_file, alert_msg)) {
+                        log_alert(alert_file, alert_msg);
+                        suspicious++;
+                    }
+                }
+
+                // Detect time differences with high precision
+                if (fabs(difftime(new->modified_time, old->modified_time)) > DBL_EPSILON) {
+                    char old_time_str[64], new_time_str[64];
+                    
+                    // Convert timestamps to human-readable format
+                    struct tm *old_tm = localtime(&old->modified_time);
+                    struct tm *new_tm = localtime(&new->modified_time);
+                    
+                    strftime(old_time_str, sizeof(old_time_str), "%Y-%m-%d %H:%M:%S", old_tm);
+                    strftime(new_time_str, sizeof(new_time_str), "%Y-%m-%d %H:%M:%S", new_tm);
+
+                    char alert_msg[1024];
+                    snprintf(alert_msg, sizeof(alert_msg), 
+                            "ALERTA: Archivo modificado: %s\n"
+                            "  Tiempo anterior: %ld (%s)\n"
+                            "  Tiempo actual: %ld (%s)\n"
+                            "  Diferencia de tiempo: %.6f segundos", 
+                            new->path, 
+                            old->modified_time, old_time_str,
+                            new->modified_time, new_time_str,
+                            fabs(difftime(new->modified_time, old->modified_time)));
                     
                     if (!is_alert_logged(alert_file, alert_msg)) {
                         log_alert(alert_file, alert_msg);
@@ -386,31 +550,51 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         }
     }
 
-    // Nuevos archivos + duplicados
+    // New files detection with improved matching
     for (int j = 0; j < current->count; j++) {
-        int found = 0;
-        for (int i = 0; i < baseline->count; i++) {
-            if (strcmp(current->files[j].path, baseline->files[i].path) == 0) {
-                found = 1;
-                break;
-            }
-        }
+        if (!matched[j]) {
+            int is_genuinely_new = 1;
+            char* new_basename = basename(current->files[j].path);
 
-        if (!found) {
-            char alert_file[512];
-            snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", basename(current->files[j].path));
-
-            char alert_msg[1024];
-            snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Nuevo archivo: %s", current->files[j].path);
-            if (!is_alert_logged(alert_file, alert_msg)) {
-                log_alert(alert_file, alert_msg);
-                suspicious++;
+            // Check if this file basename already exists in the baseline
+            for (int i = 0; i < baseline->count; i++) {
+                if (strcmp(basename(baseline->files[i].path), new_basename) == 0) {
+                    is_genuinely_new = 0;
+                    break;
+                }
             }
 
-            if (is_duplicate(current->files[j].hash, current->files, current->count, current->files[j].path)) {
+            // In the new files detection section
+            if (is_genuinely_new) {
+                char alert_file[512];
+                snprintf(alert_file, sizeof(alert_file), "/tmp/usb_alerts/%s_alerts.txt", new_basename);
+
+                // Only log new file alert if it's truly a new file type
+                char alert_msg[1024];
+                snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Nuevo archivo: %s", current->files[j].path);
+                if (!is_alert_logged(alert_file, alert_msg)) 
+                {
+                    log_alert(alert_file, alert_msg);
+                    suspicious++;
+                }
+
+                // Enhanced duplicate check with more specific logging
                 char dup_msg[1024];
-                snprintf(dup_msg, sizeof(dup_msg), "ALERTA: Archivo duplicado detectado: %s", current->files[j].path);
-                if (!is_alert_logged(alert_file, dup_msg)) {
+                snprintf(dup_msg, sizeof(dup_msg), 
+                    "ALERTA: Archivo duplicado o muy similar detectado: %s\n"
+                    "  Tamaño: %ld bytes\n"
+                    "  Tiempo de modificación: %ld\n"
+                    "  Permisos: %o\n"
+                    "  Propietario: %d", 
+                    current->files[j].path,
+                    current->files[j].size,
+                    current->files[j].modified_time,
+                    current->files[j].permissions,
+                    current->files[j].owner);
+                
+                // Check for duplicate only once
+                if (is_duplicate(&current->files[j], current->files, current->count, current->files[j].path) &&
+                    !is_alert_logged(alert_file, dup_msg)) {
                     log_alert(alert_file, dup_msg);
                     suspicious++;
                 }
@@ -425,8 +609,13 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         
         char critical_msg[1024];
         snprintf(critical_msg, sizeof(critical_msg), "ALERTA CRÍTICA: %d cambios sospechosos detectados", suspicious);
-        log_alert(summary_file, critical_msg);
+        
+        if (!is_alert_logged(summary_file, critical_msg)) {
+            log_alert(summary_file, critical_msg);
+        }
     }
+
+    free(matched);
 }
 
 // MAIN
