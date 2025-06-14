@@ -6,7 +6,12 @@ TARGET=matguard
 SRC=pesquisa/pesquisa.c
 USB_SCAN=usb_scanning
 USB_SRC=USB_Scanning/usb_scanning.c
-LIST=/tmp/scanned_usb.list
+TEST_SCRIPT=Tortuga/test_file_modification/test_monitor_usb.sh
+
+# Test directories
+TEST_USB_DIR=/tmp/test_usb_simulation
+BASELINE_DIR=/tmp/usb_baselines
+ALERTS_DIR=/tmp/usb_alerts
 
 all: $(TARGET) $(USB_SCAN)
 
@@ -16,7 +21,20 @@ $(TARGET): $(SRC)
 $(USB_SCAN): $(USB_SRC)
 	$(CC) -o $(USB_SCAN) $(USB_SRC)
 
-clean:
-	rm -f $(TARGET) $(USB_SCAN) $(LIST) /tmp/usb_baselines/* /tmp/usb_alerts/*
+test: $(TARGET)
+	@echo "Running USB Monitoring Test..."
+	@mkdir -p $(TEST_USB_DIR)
+	@mkdir -p $(BASELINE_DIR)
+	@mkdir -p $(ALERTS_DIR)
+	@chmod +x $(TEST_SCRIPT)
+	@sudo TEST_USB_DIR=$(TEST_USB_DIR) \
+		  BASELINE_DIR=$(BASELINE_DIR) \
+		  ALERTS_DIR=$(ALERTS_DIR) \
+		  MATGUARD_PATH=./$(TARGET) \
+		  $(TEST_SCRIPT)
 
-.PHONY: all clean
+clean:
+	rm -f $(TARGET) $(USB_SCAN)
+	rm -rf $(TEST_USB_DIR) $(BASELINE_DIR) $(ALERTS_DIR)
+
+.PHONY: all clean test
