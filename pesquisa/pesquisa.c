@@ -1,27 +1,62 @@
+#define _GNU_SOURCE
+#define _FILE_OFFSET_BITS 64  // This can help with 64-bit file offset compatibility
+
+// Reduce fcntl-related headers
+#include <fcntl.h>
+
+// Keep the rest of your existing includes
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <dirent.h>
 #include <unistd.h>
-#include <pwd.h>  // for getpwuid()
-#include <libgen.h>  // for basename()
-#include <pwd.h>
-
-#include <time.h>
-#include <float.h>
-#include <grp.h>
-#include <limits.h>  // for PATH_MAX
-#include <openssl/sha.h>
-#include <fcntl.h>
-#include <time.h>
-#include <sys/types.h>
-#include <libgen.h>  // para basename
-#include <openssl/evp.h>  // Replace older SHA headers
-#include <openssl/err.h>
-// Add this to the top of the file with other includes
 #include <errno.h>
+
+// System headers
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/fanotify.h>
+
+// Linux-specific headers
 #include <linux/limits.h>
+#include <poll.h>
+
+// Other system headers
+#include <dirent.h>
+#include <pwd.h>
+#include <grp.h>
+#include <libgen.h>
+#include <time.h>
+#include <limits.h>
+#include <float.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <linux/audit.h>
+#include <libaudit.h>
+#include <limits.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <libaudit.h>
+#include <linux/audit.h>
+#include <errno.h>
+#include <limits.h>
+
+// OpenSSL headers
+#include <openssl/sha.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
 
 #define MAX_FILES 1000
 #define MAX_PATH 1024
@@ -239,10 +274,10 @@ int is_duplicate(FileInfo* file, FileInfo* files, int count, const char* exclude
     return 0;  // No duplicates found
 }
 
-// New function to log an alert
-void log_alert(const char* alert_file, const char* alert_message) {
-    // Use a more robust method to prevent duplicate logging
 
+// log alert light
+void log_alert_light(const char* alert_file, const char* alert_message)
+{
     FILE* log = fopen(alert_file, "a");
     if (log) {
         time_t now = time(NULL);
@@ -252,6 +287,41 @@ void log_alert(const char* alert_file, const char* alert_message) {
         fprintf(log, "%s%s\n", timestamp, alert_message);
         fclose(log);
     }
+}
+// New function to log an alert
+void log_alert(const char* alert_file, 
+                const char* alert_message,
+                pid_t pid, 
+                const char* exe_path, 
+                const char* cmdline, 
+                uint64_t event_mask) {
+    // Use a more robust method to prevent duplicate logging
+
+
+    // Creating the process message:
+
+    
+    char process_alert[2048];
+    snprintf(process_alert, sizeof(process_alert), 
+                "ALERTA DE PROCESO:\n"
+                "  PID: %d\n"
+                "  Ejecutable: %s\n"
+                "  Comando: %s\n"
+                "  Evento de sistema de archivos: %lu\n",
+                pid, exe_path, cmdline, event_mask);
+        
+
+    FILE* log = fopen(alert_file, "a");
+    if (log) {
+        time_t now = time(NULL);
+        char timestamp[64];
+        strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
+        fprintf(log, "%s%s\n", timestamp, process_alert);
+        fprintf(log, "%s\n", timestamp, alert_message);
+        fclose(log);
+    }
+
+
     
 }
 
@@ -387,7 +457,12 @@ int is_same_file(const char* old_path, const char* new_path) {
     return strcmp(old_basename, new_basename) == 0;
 }
 
-void check_for_anomalies(Baseline* baseline, Baseline* current) {
+int check_for_anomalies(Baseline* baseline, 
+                        Baseline* current,
+                        pid_t pid, 
+                        const char* exe_path, 
+                        const char* cmdline, 
+                        uint64_t event_mask) {
     int total = baseline->count;
     int suspicious = 0;
 
@@ -439,7 +514,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                             new->path, old->size, new->size, size_percentage_change);
                         
                         if (!is_alert_logged(alert_file, alert_msg)) {
-                            log_alert(alert_file, alert_msg);
+                            log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                             suspicious++;
                         }
                     }
@@ -460,7 +535,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                         new_ext ? new_ext : "sin extensión");
                     
                     if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
+                        log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                         suspicious++;
                     }
                 }
@@ -473,7 +548,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                         new->path, old->permissions, new->permissions);
                     
                     if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
+                        log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                         suspicious++;
                     }
                 }
@@ -498,7 +573,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                         new->owner, new_owner_name);
                     
                     if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
+                        log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                         suspicious++;
                     }
                 }
@@ -526,7 +601,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                             fabs(difftime(new->modified_time, old->modified_time)));
                     
                     if (!is_alert_logged(alert_file, alert_msg)) {
-                        log_alert(alert_file, alert_msg);
+                        log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                         suspicious++;
                     }
                 }
@@ -544,7 +619,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
             char alert_msg[1024];
             snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Archivo eliminado: %s", old->path);
             if (!is_alert_logged(alert_file, alert_msg)) {
-                log_alert(alert_file, alert_msg);
+                log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                 suspicious++;
             }
         }
@@ -574,7 +649,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                 snprintf(alert_msg, sizeof(alert_msg), "ALERTA: Nuevo archivo: %s", current->files[j].path);
                 if (!is_alert_logged(alert_file, alert_msg)) 
                 {
-                    log_alert(alert_file, alert_msg);
+                    log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                     suspicious++;
                 }
 
@@ -595,7 +670,7 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
                 // Check for duplicate only once
                 if (is_duplicate(&current->files[j], current->files, current->count, current->files[j].path) &&
                     !is_alert_logged(alert_file, dup_msg)) {
-                    log_alert(alert_file, dup_msg);
+                    log_alert(alert_file, alert_msg, pid, exe_path, cmdline, event_mask);
                     suspicious++;
                 }
             }
@@ -611,12 +686,191 @@ void check_for_anomalies(Baseline* baseline, Baseline* current) {
         snprintf(critical_msg, sizeof(critical_msg), "ALERTA CRÍTICA: %d cambios sospechosos detectados", suspicious);
         
         if (!is_alert_logged(summary_file, critical_msg)) {
-            log_alert(summary_file, critical_msg);
+            log_alert_light(summary_file, critical_msg);
         }
     }
 
     free(matched);
+    return suspicious;
 }
+
+void check_for_anomalies_with_process(Baseline* baseline, Baseline* current, 
+                                      const char* path, 
+                                      pid_t pid, 
+                                      const char* exe_path, 
+                                      const char* cmdline, 
+                                      uint64_t event_mask) {
+    // First, check for anomalies in the file
+    int initial_suspicious = check_for_anomalies(baseline, current,
+                                                pid, exe_path, cmdline, event_mask);
+    
+    // If anomalies were found, log additional process information
+
+    
+}
+
+// Structure to hold process details
+typedef struct {
+    pid_t pid;
+    char exe_path[PATH_MAX];
+    char cmdline[PATH_MAX];
+} ProcessInfo;
+
+// Function to get detailed process information
+void get_process_info(pid_t pid, ProcessInfo* process_info) {
+    process_info->pid = pid;
+    
+    // Get executable path
+    char exe_link[PATH_MAX];
+    snprintf(exe_link, sizeof(exe_link), "/proc/%d/exe", pid);
+    ssize_t len = readlink(exe_link, process_info->exe_path, sizeof(process_info->exe_path) - 1);
+    if (len != -1) {
+        process_info->exe_path[len] = '\0';
+    } else {
+        strncpy(process_info->exe_path, "unknown", sizeof(process_info->exe_path));
+    }
+    
+    // Get command line
+    char cmdline_path[PATH_MAX];
+    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
+    FILE* cmdline_file = fopen(cmdline_path, "r");
+    if (cmdline_file) {
+        size_t bytes_read = fread(process_info->cmdline, 1, sizeof(process_info->cmdline) - 1, cmdline_file);
+        process_info->cmdline[bytes_read] = '\0';
+        fclose(cmdline_file);
+    } else {
+        strncpy(process_info->cmdline, "unknown", sizeof(process_info->cmdline));
+    }
+}
+
+// Add these headers at the top of your file
+#include <sys/statfs.h>  // For statfs()
+
+// Helper to detect if a path is a mount point
+int is_mount_point(const char *path) {
+    struct stat st_path, st_parent;
+    char parent_path[PATH_MAX];
+    
+    if (stat(path, &st_path) != 0) return 0;
+
+    snprintf(parent_path, sizeof(parent_path), "%s/..", path);
+    if (stat(parent_path, &st_parent) != 0) return 0;
+
+    // If the device or inode is different, it's a mount point
+    return st_path.st_dev != st_parent.st_dev || st_path.st_ino == st_parent.st_ino;
+}
+
+// Helper function to extract a field from an audit message line
+char* extract_value(const char* data, const char* key) {
+    char* pos = strstr(data, key);
+    if (!pos) return NULL;
+    pos += strlen(key);
+    char* end = strchr(pos, ' ');
+    if (end) {
+        size_t len = end - pos;
+        char* result = malloc(len + 1);
+        strncpy(result, pos, len);
+        result[len] = '\0';
+        return result;
+    }
+    return strdup(pos);
+}
+
+void monitor_usb_with_audit(Baseline* baseline, const char* mount_path) {
+    if (!mount_path || strlen(mount_path) == 0) {
+        fprintf(stderr, "Invalid mount path\n");
+        exit(EXIT_FAILURE);
+    }
+
+    struct stat st;
+    if (stat(mount_path, &st) != 0) {
+        perror("stat failed on mount path");
+        exit(EXIT_FAILURE);
+    }
+
+    int audit_fd = audit_open();
+    if (audit_fd < 0) {
+        perror("audit_open failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Inicializar estructura de regla
+    struct audit_rule_data rule;
+    memset(&rule, 0, sizeof(rule));
+
+    // // Añadir watch a la regla para el directorio mount_path
+    // if (audit_rule_add_watch(&rule, mount_path) < 0) {
+    //     perror("audit_rule_add_watch failed");
+    //     close(audit_fd);
+    //     exit(EXIT_FAILURE);
+    // }
+
+    // Añadir syscalls a monitorear
+    audit_rule_syscallbyname_data(&rule, "open");
+    audit_rule_syscallbyname_data(&rule, "openat");
+    audit_rule_syscallbyname_data(&rule, "chmod");
+    audit_rule_syscallbyname_data(&rule, "fchmod");
+    audit_rule_syscallbyname_data(&rule, "unlink");
+    audit_rule_syscallbyname_data(&rule, "rename");
+    audit_rule_syscallbyname_data(&rule, "creat");
+
+    // Añadir regla a audit
+    if (audit_add_rule_data(audit_fd, &rule, AUDIT_FILTER_EXIT, AUDIT_ALWAYS) < 0) {
+        perror("audit_add_rule_data failed");
+        close(audit_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("[+] Audit monitoring enabled on: %s\n", mount_path);
+
+    struct audit_reply reply;
+    while (1) {
+        memset(&reply, 0, sizeof(reply));
+
+        int status = audit_get_reply(audit_fd, &reply, GET_REPLY_BLOCKING, 0);
+        if (status <= 0) continue;
+
+        if (reply.type == AUDIT_SYSCALL || reply.type == AUDIT_PATH || reply.type == AUDIT_EXECVE) {
+            char* msg = reply.message;
+            if (!msg) continue;
+
+            char* pid_str = extract_value(msg, "pid=");
+            char* name_str = extract_value(msg, "name=");
+
+            if (pid_str && name_str) {
+                int pid = atoi(pid_str);
+                char* filename = name_str;
+
+                ProcessInfo process_info = {0};
+                get_process_info(pid, &process_info);
+
+                Baseline current_baseline = {0};
+                scan_directory(mount_path, &current_baseline);
+
+                check_for_anomalies_with_process(
+                    baseline,
+                    &current_baseline,
+                    filename,
+                    pid,
+                    process_info.exe_path,
+                    process_info.cmdline,
+                    0
+                );
+
+                // NO uses free(&current_baseline) porque no es un puntero, solo libera recursos internos si hay
+                // Asegúrate que current_baseline tiene función de limpieza si usa malloc (ejemplo: free_baseline(&current_baseline);)
+
+                free(pid_str);
+                free(name_str);
+            }
+        }
+    }
+
+    // No existe audit_rule_free, no llamarla
+    close(audit_fd);
+}
+
+
 
 // MAIN
 int main(int argc, char* argv[]) {
@@ -655,12 +909,8 @@ int main(int argc, char* argv[]) {
             load_baseline(baseline_path, &base);
         }
 
-        while (1) {
-            current.count = 0;
-            scan_directory(path, &current);
-            check_for_anomalies(&base, &current);
-            sleep(10);
-        }
+        // Start fanotify monitoring instead of periodic scanning
+        monitor_usb_with_audit(&base, path);
     }
 
     return 0;

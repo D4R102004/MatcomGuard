@@ -1,6 +1,6 @@
 CC=gcc
 CFLAGS=-Wall -I/usr/include/openssl
-LDFLAGS=-lssl -lcrypto
+LDFLAGS=-lssl -lcrypto -laudit
 
 TARGET=matguard
 SRC=pesquisa/pesquisa.c
