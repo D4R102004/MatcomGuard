@@ -1,0 +1,107 @@
+void monitor_usb_with_fanotify(Baseline* baseline, const char* mount_path) {
+    if (mount_path == NULL || strlen(mount_path) == 0) {
+        fprintf(stderr, "Invalid mount path\n");
+        exit(EXIT_FAILURE);
+    }
+
+    struct stat path_stat;
+    if (stat(mount_path, &path_stat) != 0) {
+        perror("Error accessing mount path");
+        fprintf(stderr, "Full path: %s\n", mount_path);
+        exit(EXIT_FAILURE);
+    }
+
+    // Filesystem type (optional debug)
+    struct statfs fs_stat;
+    if (statfs(mount_path, &fs_stat) == 0) {
+        switch (fs_stat.f_type) {
+            case 0xEF53: printf("[DEBUG] Filesystem type: ext4\n"); break;
+            case 0x9123: printf("[DEBUG] Filesystem type: tmpfs\n"); break;
+            default:     printf("[DEBUG] Filesystem type: 0x%lx\n", fs_stat.f_type);
+        }
+    }
+
+    // Initialize fanotify
+    int fan_fd = fanotify_init(FAN_CLASS_CONTENT | FAN_NONBLOCK, O_RDONLY | O_LARGEFILE);
+    if (fan_fd < 0) {
+        perror("fanotify_init failed");
+        exit(EXIT_FAILURE);
+    }
+    printf("[DEBUG] fanotify_init successful\n");
+
+    // Detect mount point
+    int is_mount = is_mount_point(mount_path);
+    printf("[DEBUG] Path is %s\n", is_mount ? "a mount point (USB)" : "not a mount point");
+
+    // Set mark flags appropriately
+    uint64_t event_flags = FAN_MODIFY | FAN_CLOSE_WRITE | FAN_CREATE | FAN_DELETE | FAN_MOVE;
+    uint64_t mark_flags = FAN_MARK_ADD;
+
+    if (is_mount) {
+        mark_flags |= FAN_MARK_MOUNT;
+    } else {
+        mark_flags |= FAN_MARK_FILESYSTEM;  // ← REQUIRED for normal folders!
+    }
+
+    // Mark the path
+    if (fanotify_mark(fan_fd, mark_flags, event_flags, AT_FDCWD, mount_path) < 0) {
+        perror("fanotify_mark failed");
+        close(fan_fd);
+        exit(EXIT_FAILURE);
+    }
+    printf("[DEBUG] fanotify_mark successful on %s\n", mount_path);
+
+    // Begin monitoring
+    printf("[+] Monitoring changes on: %s\n", mount_path);
+    struct pollfd pfd = { .fd = fan_fd, .events = POLLIN };
+
+    while (1) {
+        if (poll(&pfd, 1, -1) <= 0) continue;
+
+        char buf[4096];
+        ssize_t len = read(fan_fd, buf, sizeof(buf));
+        if (len <= 0) continue;
+
+        struct fanotify_event_metadata *metadata = (struct fanotify_event_metadata *) buf;
+
+        while (FAN_EVENT_OK(metadata, len)) {
+            if (metadata->fd >= 0) {
+                char link_path[PATH_MAX];
+                snprintf(link_path, sizeof(link_path), "/proc/self/fd/%d", metadata->fd);
+
+                char resolved_path[PATH_MAX] = {0};
+                ssize_t path_len = readlink(link_path, resolved_path, sizeof(resolved_path) - 1);
+                if (path_len == -1) {
+                    perror("readlink");
+                    close(metadata->fd);
+                    metadata = FAN_EVENT_NEXT(metadata, len);
+                    continue;
+                }
+                resolved_path[path_len] = '\0';
+
+                ProcessInfo process_info;
+                get_process_info(metadata->pid, &process_info);
+
+                Baseline current_baseline = {0};
+                scan_directory(resolved_path, &current_baseline);
+
+                check_for_anomalies_with_process(
+                    baseline,
+                    &current_baseline,
+                    resolved_path,
+                    process_info.pid,
+                    process_info.exe_path,
+                    process_info.cmdline,
+                    metadata->mask
+                );
+
+                free(&current_baseline); // free resources
+                close(metadata->fd);
+            }
+
+            metadata = FAN_EVENT_NEXT(metadata, len);
+        }
+    }
+
+    close(fan_fd);
+}

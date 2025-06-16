@@ -29,6 +29,11 @@ run_tests() {
     echo "=== Creating Baseline ==="
     "$MATGUARD_PATH" "$TEST_USB_DIR"
 
+    # Run monitoring mode
+    echo "=== Running Monitoring Mode ==="
+    "$MATGUARD_PATH" "$TEST_USB_DIR" monitor &
+    MONITOR_PID=$!
+
     # Simulate modifications
     echo "=== Simulating File Modifications ==="
 
@@ -53,10 +58,7 @@ run_tests() {
     # 6. Create a new file
     sudo touch "$TEST_USB_DIR/file3.txt"
 
-    # Run monitoring mode
-    echo "=== Running Monitoring Mode ==="
-    "$MATGUARD_PATH" "$TEST_USB_DIR" monitor &
-    MONITOR_PID=$!
+
 
     # Wait for alerts to be generated
     sleep 15
