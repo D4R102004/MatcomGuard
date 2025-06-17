@@ -6,8 +6,12 @@
 #include <time.h>
 #include <gtk/gtk.h>
 #include "message_queue.h"
+#include "port_scanner.h"
 extern MessageQueue* scan_directory(const char *path);
 extern void expand_tilde(const char *input_path, char *expanded_path, size_t size);
+extern void scan_ports(MessageQueue* queue, const char *ip, const char *rango); 
+
+
 
 static gchar *texto_ingresado = NULL; // Variable global para almacenar el texto
 static GtkWidget *text_view;  // Declaración global
@@ -32,7 +36,7 @@ static void funcion_boton1() {
         append_to_console(message);
         MessageQueue* result_queue =  scan_directory(texto_ingresado);
         printf("\nResultados del escaneo (%d archivos):\n", mq_count(result_queue));
-while (!mq_is_empty(result_queue)) {
+ while (!mq_is_empty(result_queue)) {
     char* msg = mq_dequeue(result_queue);
     
     // Crear una nueva cadena con salto de línea
@@ -68,7 +72,32 @@ static void funcion_boton2() {
 }
 
 static void funcion_boton3() {
-
+    MessageQueue* queue = mq_init();
+    
+    // Ejecutar escaneo
+    scan_ports(queue, "127.0.0.1", "1-10000");
+    
+ // Procesar resultados y mostrar en interfaz
+    append_to_console("\nResultados del escaneo de puertos:\n");
+    while(!mq_is_empty(queue)) {
+        char* msg = mq_dequeue(queue);
+        
+        // Formatear mensaje con salto de línea
+        char* formatted_msg = malloc(strlen(msg) + 2);
+        if (formatted_msg) {
+            sprintf(formatted_msg, "%s\n", msg);
+            append_to_console(formatted_msg);
+            free(formatted_msg);
+        } else {
+            append_to_console(msg);
+            append_to_console("\n");
+        }
+        
+        free(msg);
+    }
+    
+    // Limpiar
+    mq_destroy(queue);
 }
 
 static void button_clicked(GtkWidget *widget, gpointer data) {
@@ -167,9 +196,9 @@ static void activate(GtkApplication *app, gpointer user_data) {
     g_signal_connect(entry, "changed", G_CALLBACK(on_entry_changed), NULL);
     
     // Crear botones (igual que antes)
-    GtkWidget *button1 = gtk_button_new_with_label("Analizar Dispositivo USB");
+    GtkWidget *button1 = gtk_button_new_with_label("Analizar Dispositivo Ruta de Archivos");
     GtkWidget *button2 = gtk_button_new_with_label("Botón 2");
-    GtkWidget *button3 = gtk_button_new_with_label("Botón 3");
+    GtkWidget *button3 = gtk_button_new_with_label("Analizar Puertos Locales");
     
     gtk_widget_set_size_request(button1, 200, 40);
     gtk_widget_set_size_request(button2, 200, 40);
