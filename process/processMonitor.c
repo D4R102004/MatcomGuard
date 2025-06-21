@@ -5,251 +5,256 @@
 #include <dirent.h>
 #include <unistd.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <errno.h>
 #include <time.h>
 #include <pthread.h>
 
 // -------------------------------------------------------------
-// Configuraciones iniciales y umbrales
-#define DEFAULT_INTERVAL 5         // Segundos entre cada revisión de /proc
-#define CPU_THRESHOLD   80.0       // (No usado al mostrar todos los procesos)
-#define MEM_THRESHOLD  (100 * 1024) // (No usado al mostrar todos los procesos)
+// Configuraciones iniciales y umbrales de alerta
+#define DEFAULT_INTERVAL    5               // Segundos entre revisiones de /proc
+#define CLEAN_INTERVAL     180               // Cada 1 minuto
+#define CPU_ALERT_SEC       1.0             // CPU acumulado en segundos
+#define MEM_ALERT_KB      (50 * 1024)       // 50 MB en KB
+#define IO_READ_ALERT     (10UL * 1024 * 1024)  // 10 MB leídos en bytes
+#define IO_WRITE_ALERT    (10UL * 1024 * 1024)  // 10 MB escritos en bytes
+#define ALERT_DIR         "Txt-Internos"
 // -------------------------------------------------------------
 
-typedef struct ProcInfo {
-    pid_t pid;               // Identificador de proceso
-    struct ProcInfo *next;   // Puntero al siguiente nodo en la lista
-} ProcInfo;
+typedef struct AlertInfo {
+    pid_t pid;
+    double cpu_sec;
+    unsigned long mem_kb;
+    unsigned long readb;
+    unsigned long writeb;
+    char reasons[64];
+    struct AlertInfo *next;
+} AlertInfo;
 
-// Lista global de PIDs ya vistos
-static ProcInfo *proc_list = NULL;
-
-// Mutex para sincronizar salidas a consola
 static pthread_mutex_t io_mutex = PTHREAD_MUTEX_INITIALIZER;
+static AlertInfo *prev_alerts = NULL;
 
-// Prototipos de funciones
-void init_process_monitor(void);
-void *monitor_processes(void);
-unsigned long get_clk_tick(void);
-
-// -------------------------------------------------------------
-
-/*
- * main:
- *   - Punto de entrada del programa.
- *   - Inicializa el monitor de procesos.
- *   - Lanza un hilo que ejecuta monitor_processes() en bucle.
- */
-int main(int argc, char *argv[]) {
-    printf("Starting Process Monitor (mostrará procesos nuevos con CPU y Mem)...\n");
-
-    init_process_monitor();
-
-    pthread_t monitor_thread;
-    if (pthread_create(&monitor_thread, NULL, monitor_processes, NULL) != 0) {
-        perror("Error creando hilo de monitoreo");
-        exit(EXIT_FAILURE);
-    }
-
-    // El hilo corre indefinidamente; aquí solo esperamos
-    pthread_join(monitor_thread, NULL);
-    return 0;
-}
-
-/*
- * init_process_monitor:
- *   - Inicializa la lista enlazada de procesos vistos.
- */
-void init_process_monitor(void) {
-    proc_list = NULL;
-}
-
-/*
- * get_clk_tick:
- *   - Retorna la cantidad de ticks de reloj por segundo.
- *   - sysconf(_SC_CLK_TCK) es portátil en Linux/Unix.
- */
+// Devuelve ticks por segundo
 unsigned long get_clk_tick(void) {
     return sysconf(_SC_CLK_TCK);
 }
 
-/*
- * monitor_processes:
- *   - Recorre /proc cada DEFAULT_INTERVAL segundos.
- *   - Por cada entrada numérica (PID):
- *       * Verifica si ya está en proc_list.
- *       * Si no está, lo agrega, lee /proc/[pid]/stat y statm para obtener
- *         CPU acumulado (utime+stime) y memoria residente, y muestra:
- *           "[Alerta] Nuevo Proceso detectado -> PID X | CPU: Y seg | Mem: Z KB"
- */
-void *monitor_processes(void) {
-    unsigned long clk_tick = get_clk_tick();
-    
-    // Primero, construir la lista inicial de PIDs y generar el archivo inicial
-    ProcInfo *prev_list = NULL;
+// Construye lista enlazada de procesos que superan umbrales
+AlertInfo *build_alert_list(unsigned long clk_tick) {
     DIR *dir = opendir("/proc");
-    if (dir) {
-        struct dirent *entry;
-        ProcInfo *tail = NULL;
-        while ((entry = readdir(dir)) != NULL) {
-            if (!isdigit((unsigned char)entry->d_name[0])) continue;
-            pid_t pid = (pid_t)atoi(entry->d_name);
-            ProcInfo *node = malloc(sizeof(ProcInfo));
-            if (!node) continue;
-            node->pid = pid;
-            node->next = NULL;
-            if (!prev_list) prev_list = node;
-            else tail->next = node;
-            tail = node;
-        }
-        closedir(dir);
-    }
-    
-    // Generar archivo inicial con todos los procesos actuales
-    if (prev_list) {
-        time_t now0 = time(NULL);
-        char filename0[64];
-        struct tm *tm_info0 = localtime(&now0);
-        strftime(filename0, sizeof(filename0), "processes_%Y%m%d_%H%M%S.txt", tm_info0);
-        FILE *outfile0 = fopen(filename0, "w");
-        if (outfile0) {
-            for (ProcInfo *i = prev_list; i; i = i->next) {
-                pid_t pid = i->pid;
-                char path_stat[64], path_mem[64];
-                snprintf(path_stat, sizeof(path_stat), "/proc/%d/stat", pid);
-                snprintf(path_mem, sizeof(path_mem), "/proc/%d/statm", pid);
+    if (!dir) return NULL;
+    AlertInfo *head = NULL, *tail = NULL;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!isdigit((unsigned char)entry->d_name[0])) continue;
+        pid_t pid = atoi(entry->d_name);
 
-                FILE *fstat = fopen(path_stat, "r");
-                FILE *fmem  = fopen(path_mem, "r");
-                if (fstat && fmem) {
-                    unsigned long utime, stime;
-                    for (int k = 0; k < 13; k++) fscanf(fstat, "%*s");
-                    fscanf(fstat, "%lu %lu", &utime, &stime);
-                    fclose(fstat);
+        // --- CPU ---
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+        FILE *fs = fopen(path, "r");
+        if (!fs) continue;
+        for (int k = 0; k < 13; k++) fscanf(fs, "%*s");
+        unsigned long utime, stime;
+        fscanf(fs, "%lu %lu", &utime, &stime);
+        fclose(fs);
+        double cpu_sec = (double)(utime + stime) / clk_tick;
 
-                    unsigned long size, resident;
-                    fscanf(fmem, "%lu %lu", &size, &resident);
-                    fclose(fmem);
+        // --- Memoria ---
+        snprintf(path, sizeof(path), "/proc/%d/statm", pid);
+        FILE *fm = fopen(path, "r");
+        if (!fm) continue;
+        unsigned long size, resident;
+        fscanf(fm, "%lu %lu", &size, &resident);
+        fclose(fm);
+        unsigned long mem_kb = resident * (getpagesize() / 1024);
 
-                    double cpu_seconds = (double)(utime + stime) / clk_tick;
-                    unsigned long mem_kb = resident * (getpagesize() / 1024);
-
-                    pthread_mutex_lock(&io_mutex);
-                    printf("PID %d | CPU: %.2f seg | Mem: %lu KB\n", pid, cpu_seconds, mem_kb);
-                    pthread_mutex_unlock(&io_mutex);
-
-                    fprintf(outfile0, "PID %d | CPU: %.2f seg | Mem: %lu KB\n", pid, cpu_seconds, mem_kb);
-                } else {
-                    if (fstat) fclose(fstat);
-                    if (fmem) fclose(fmem);
-                }
+        // --- I/O ---
+        snprintf(path, sizeof(path), "/proc/%d/io", pid);
+        FILE *fio = fopen(path, "r");
+        unsigned long rb = 0, wb = 0;
+        if (fio) {
+            char line[128];
+            while (fgets(line, sizeof(line), fio)) {
+                sscanf(line, "read_bytes: %lu", &rb);
+                sscanf(line, "write_bytes: %lu", &wb);
             }
-            fclose(outfile0);
+            fclose(fio);
+        }
+
+        // Determinar razones de alerta
+        char reasons[64] = "";
+        if (cpu_sec > CPU_ALERT_SEC)   strcat(reasons, "CPU ");
+        if (mem_kb > MEM_ALERT_KB)     strcat(reasons, "MEM ");
+        if (rb > IO_READ_ALERT)        strcat(reasons, "IOR ");
+        if (wb > IO_WRITE_ALERT)       strcat(reasons, "IOW ");
+        if (strlen(reasons) == 0) continue;
+
+        // Crear nodo de alerta
+        AlertInfo *node = malloc(sizeof(AlertInfo));
+        if (!node) continue;
+        node->pid     = pid;
+        node->cpu_sec = cpu_sec;
+        node->mem_kb  = mem_kb;
+        node->readb   = rb;
+        node->writeb  = wb;
+        strncpy(node->reasons, reasons, sizeof(node->reasons)-1);
+        node->reasons[sizeof(node->reasons)-1] = '\0';
+        node->next    = NULL;
+
+        if (!head) head = node;
+        else        tail->next = node;
+        tail = node;
+    }
+    closedir(dir);
+    return head;
+}
+
+// Libera la lista enlazada
+void free_alert_list(AlertInfo *list) {
+    while (list) {
+        AlertInfo *tmp = list;
+        list = list->next;
+        free(tmp);
+    }
+}
+
+// Compara dos listas por PID
+int alerts_equal(AlertInfo *a, AlertInfo *b) {
+    AlertInfo *i;
+    for (i = a; i; i = i->next) {
+        AlertInfo *j; int found = 0;
+        for (j = b; j; j = j->next) {
+            if (i->pid == j->pid) { found = 1; break; }
+        }
+        if (!found) return 0;
+    }
+    for (i = b; i; i = i->next) {
+        AlertInfo *j; int found = 0;
+        for (j = a; j; j = j->next) {
+            if (i->pid == j->pid) { found = 1; break; }
+        }
+        if (!found) return 0;
+    }
+    return 1;
+}
+
+// Escribe alertas en consola y en un .txt dentro de ALERT_DIR
+void write_alerts(AlertInfo *alerts) {
+    // Crear carpeta si no existe
+    struct stat st = {0};
+    if (stat(ALERT_DIR, &st) == -1) {
+        if (mkdir(ALERT_DIR, 0755) != 0) {
+            perror("Error creando carpeta " ALERT_DIR);
+            return;
         }
     }
 
-    // Bucle para posteriores cambios
+    // Nombre de archivo con timestamp
+    time_t now = time(NULL);
+    char fname[64], filepath[128];
+    strftime(fname, sizeof(fname), "processes_%Y%m%d_%H%M%S.txt", localtime(&now));
+    snprintf(filepath, sizeof(filepath), ALERT_DIR "/%s", fname);
+
+    FILE *out = fopen(filepath, "w");
+    if (!out) {
+        perror("Error al abrir fichero de alertas");
+        return;
+    }
+
+    pthread_mutex_lock(&io_mutex);
+    for (AlertInfo *node = alerts; node; node = node->next) {
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+            "[Alerta] PID %d | CPU: %.2f seg | Mem: %lu KB | IO R/W: %lu/%lu bytes | Razones: %s\n",
+            node->pid, node->cpu_sec, node->mem_kb, node->readb, node->writeb, node->reasons);
+        printf("%s", buf);
+        fprintf(out, "%s", buf);
+    }
+    pthread_mutex_unlock(&io_mutex);
+
+    fclose(out);
+}
+
+// Hilo de monitoreo continuo
+void *monitor_processes(void *arg) {
+    unsigned long clk_tick = get_clk_tick();
+    prev_alerts = build_alert_list(clk_tick);
+    if (prev_alerts) write_alerts(prev_alerts);
+
     while (1) {
         sleep(DEFAULT_INTERVAL);
-        dir = opendir("/proc");
+        AlertInfo *curr = build_alert_list(clk_tick);
+        if (!alerts_equal(prev_alerts, curr)) {
+            write_alerts(curr);
+            free_alert_list(prev_alerts);
+            prev_alerts = curr;
+        } else {
+            free_alert_list(curr);
+        }
+    }
+    return NULL;
+}
+
+// Hilo limpiador: elimina el .txt más antiguo cada minuto
+void *clean_oldest_txt(void *arg) {
+    while (1) {
+        sleep(CLEAN_INTERVAL);
+
+        DIR *dir = opendir(ALERT_DIR);
         if (!dir) continue;
 
-        // Construir lista actual de PIDs
-        ProcInfo *curr_list = NULL;
-        ProcInfo *tail = NULL;
         struct dirent *entry;
+        time_t oldest = time(NULL);
+        char oldest_path[256] = "";
+        struct stat st;
+
+        // Buscar archivos .txt en ALERT_DIR
         while ((entry = readdir(dir)) != NULL) {
-            if (!isdigit((unsigned char)entry->d_name[0])) continue;
-            pid_t pid = (pid_t)atoi(entry->d_name);
-            ProcInfo *node = malloc(sizeof(ProcInfo));
-            if (!node) continue;
-            node->pid = pid;
-            node->next = NULL;
-            if (!curr_list) curr_list = node;
-            else tail->next = node;
-            tail = node;
+            size_t len = strlen(entry->d_name);
+            if (len < 5) continue;
+            if (strcasecmp(entry->d_name + len - 4, ".txt") != 0) continue;
+
+            char fullpath[256];
+            snprintf(fullpath, sizeof(fullpath), ALERT_DIR "/%s", entry->d_name);
+            if (stat(fullpath, &st) != 0) continue;
+
+            if (st.st_ctime < oldest) {
+                oldest = st.st_ctime;
+                strncpy(oldest_path, fullpath, sizeof(oldest_path)-1);
+                oldest_path[sizeof(oldest_path)-1] = '\0';
+            }
         }
         closedir(dir);
 
-        // Comparar prev_list y curr_list para detectar cambios en PIDs
-        int changed = 0;
-        for (ProcInfo *i = curr_list; i; i = i->next) {
-            int found = 0;
-            for (ProcInfo *j = prev_list; j; j = j->next) {
-                if (i->pid == j->pid) { found = 1; break; }
-            }
-            if (!found) { changed = 1; break; }
-        }
-        if (!changed) {
-            for (ProcInfo *i = prev_list; i; i = i->next) {
-                int found = 0;
-                for (ProcInfo *j = curr_list; j; j = j->next) {
-                    if (i->pid == j->pid) { found = 1; break; }
-                }
-                if (!found) { changed = 1; break; }
-            }
-        }
-
-        if (changed) {
-            // Generar nuevo archivo con timestamp
-            time_t now = time(NULL);
-            char filename[64];
-            struct tm *tm_info = localtime(&now);
-            strftime(filename, sizeof(filename), "processes_%Y%m%d_%H%M%S.txt", tm_info);
-
-            FILE *outfile = fopen(filename, "w");
-            if (outfile) {
-                for (ProcInfo *i = curr_list; i; i = i->next) {
-                    pid_t pid = i->pid;
-                    char path_stat[64], path_mem[64];
-                    snprintf(path_stat, sizeof(path_stat), "/proc/%d/stat", pid);
-                    snprintf(path_mem, sizeof(path_mem), "/proc/%d/statm", pid);
-
-                    FILE *fstat = fopen(path_stat, "r");
-                    FILE *fmem  = fopen(path_mem, "r");
-                    if (fstat && fmem) {
-                        unsigned long utime, stime;
-                        for (int k = 0; k < 13; k++) fscanf(fstat, "%*s");
-                        fscanf(fstat, "%lu %lu", &utime, &stime);
-                        fclose(fstat);
-
-                        unsigned long size, resident;
-                        fscanf(fmem, "%lu %lu", &size, &resident);
-                        fclose(fmem);
-
-                        double cpu_seconds = (double)(utime + stime) / clk_tick;
-                        unsigned long mem_kb = resident * (getpagesize() / 1024);
-
-                        pthread_mutex_lock(&io_mutex);
-                        printf("PID %d | CPU: %.2f seg | Mem: %lu KB\n", pid, cpu_seconds, mem_kb);
-                        pthread_mutex_unlock(&io_mutex);
-
-                        fprintf(outfile, "PID %d | CPU: %.2f seg | Mem: %lu KB\n", pid, cpu_seconds, mem_kb);
-                    } else {
-                        if (fstat) fclose(fstat);
-                        if (fmem) fclose(fmem);
-                    }
-                }
-                fclose(outfile);
-            }
-
-            // Liberar prev_list
-            while (prev_list) {
-                ProcInfo *tmp = prev_list;
-                prev_list = prev_list->next;
-                free(tmp);
-            }
-            // Asignar curr_list a prev_list y reiniciar curr_list
-            prev_list = curr_list;
-            curr_list = NULL;
-        } else {
-            // Si no hay cambios, liberar curr_list
-            while (curr_list) {
-                ProcInfo *tmp = curr_list;
-                curr_list = curr_list->next;
-                free(tmp);
+        // Eliminar el TXT más antiguo
+        if (oldest_path[0] != '\0') {
+            if (unlink(oldest_path) == 0) {
+                printf("[Cleaner] Eliminado TXT más antiguo: %s\n", oldest_path);
+            } else {
+                perror("[Cleaner] Error eliminando TXT");
             }
         }
     }
     return NULL;
+}
+
+int main(void) {
+    printf("Starting Process Monitor with cleaner thread...\n");
+    pthread_t monitor_th, cleaner_th;
+
+    // Iniciar hilo de monitoreo
+    if (pthread_create(&monitor_th, NULL, monitor_processes, NULL) != 0) {
+        perror("pthread_create (monitor)");
+        return EXIT_FAILURE;
+    }
+    // Iniciar hilo limpiador
+    if (pthread_create(&cleaner_th, NULL, clean_oldest_txt, NULL) != 0) {
+        perror("pthread_create (cleaner)");
+        return EXIT_FAILURE;
+    }
+
+    pthread_join(monitor_th, NULL);
+    pthread_join(cleaner_th, NULL);
+    return EXIT_SUCCESS;
 }
