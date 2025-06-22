@@ -17,6 +17,7 @@ GTK_SRC=main.c usb_scanning.c message_queue.c port_scanner.c
 TEST_USB_DIR=/tmp/test_usb_simulation
 BASELINE_DIR=/tmp/usb_baselines
 ALERTS_DIR=/tmp/usb_alerts
+HISTORY_DIR="/tmp/old_history"
 
 all: $(TARGET)
 
@@ -41,6 +42,7 @@ test: $(TARGET)
 clean:
 	rm -f $(TARGET) $(USB_SCAN)
 	rm -rf $(TEST_USB_DIR) $(BASELINE_DIR) $(ALERTS_DIR)
+	rm -rf $(HISTORY_DIR)
 
 
 

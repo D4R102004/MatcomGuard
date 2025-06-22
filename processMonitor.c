@@ -168,7 +168,7 @@ void write_alerts(AlertInfo *alerts) {
         snprintf(buf, sizeof(buf),
             "[Alerta] PID %d | CPU: %.2f seg | Mem: %lu KB | IO R/W: %lu/%lu bytes | Razones: %s\n",
             node->pid, node->cpu_sec, node->mem_kb, node->readb, node->writeb, node->reasons);
-        printf("%s", buf);
+        //printf("%s", buf);
         fprintf(out, "%s", buf);
     }
     pthread_mutex_unlock(&io_mutex);

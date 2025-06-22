@@ -6,6 +6,8 @@ PESQUISA_PATH="./matguard"
 SCANNED_LIST="/tmp/scanned_usb.list"
 BASELINE_DIR="/tmp/usb_baselines"
 ALERT_DIR="/tmp/usb_alerts"
+HISTORY_DIR="/tmp/old_history"
+HISTORY_TXT="/tmp/old_history/history.txt"
 
 # Cleanup function
 cleanup() {
@@ -27,7 +29,9 @@ trap cleanup SIGINT SIGTERM EXIT
 # Crear directorios si no existen
 mkdir -p "$BASELINE_DIR"
 mkdir -p "$ALERT_DIR"
+mkdir -p "$HISTORY_DIR"
 touch "$SCANNED_LIST"
+touch "$HISTORY_TXT"
 
 # Función para procesar un nuevo USB
 process_usb() {

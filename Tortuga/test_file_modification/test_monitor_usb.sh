@@ -4,6 +4,7 @@
 TEST_USB_DIR="${TEST_USB_DIR:-/tmp/test_usb_simulation}"
 BASELINE_DIR="${BASELINE_DIR:-/tmp/usb_baselines}"
 ALERTS_DIR="${ALERTS_DIR:-/tmp/usb_alerts}"
+HISTORY_DIR="${HISTORY_DIR:-/tmp/old_history}"
 MATGUARD_PATH="${MATGUARD_PATH:-./matguard}"
 
 # Clean previous test runs
@@ -11,12 +12,14 @@ cleanup() {
     echo "Cleaning up test environment..."
     rm -rf "$TEST_USB_DIR"
     rm -rf "$ALERTS_DIR"
+    rm -rf "$HISTORY_DIR"
 }
 
 setup() {
     mkdir -p "$TEST_USB_DIR"
     mkdir -p "$BASELINE_DIR"
     mkdir -p "$ALERTS_DIR"
+    mkdir -p "$HISTORY_DIR"
 
     # Create initial test files
     echo "Original content" > "$TEST_USB_DIR/file1.txt"

@@ -30,6 +30,12 @@ void append_to_usb(const gchar *text) {
     gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(usbconeccted), &end, 0.0, FALSE, 0.0, 1.0);
 }
 
+void clear_usb_box() {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(usbconeccted));
+    gtk_text_buffer_set_text(buffer, "", -1);
+}
+
+
 //Funcion para printear texto
 void append_to_console(const gchar *text) {
     GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
@@ -350,6 +356,24 @@ static gboolean check_alerts_timeout(gpointer user_data) {
     return TRUE;  // Mantener el temporizador activo
 }
 
+gboolean leer_linea_cada_dos_segundos(gpointer user_data) {
+    const char *filepath = (const char *)user_data;
+
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        perror("No se pudo abrir el archivo");
+        return TRUE; // Sigue intentando
+    }
+    clear_usb_box();
+    char linea[512];
+    while (fgets(linea, sizeof(linea), f)) {
+        append_to_usb(linea); // Asumiendo que tienes esta función
+    }
+
+    fclose(f);
+    return TRUE; // Se repetirá cada 2 segundos
+}
+
 
 
 int main(int argc, char **argv) {
@@ -372,6 +396,9 @@ int main(int argc, char **argv) {
         perror("Error al ejecutar monitor.sh");
         return 1;
     }
+    g_timeout_add_seconds(2, leer_linea_cada_dos_segundos, "/tmp/old_history/history.txt");
+
+
     GtkApplication *app;
     int status;
     

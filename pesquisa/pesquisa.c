@@ -364,6 +364,8 @@ void mostrar_proceso_modificador(const char *archivo, FILE* out) {
     }
 }
 
+#define OLD_HISTORY_PATH "/tmp/old_history/history.txt"
+
 // New function to log an alert
 void log_alert(const char* alert_file, 
                 const char* alert_message,
@@ -378,6 +380,7 @@ void log_alert(const char* alert_file,
 
     time_t now = time(NULL);
     char timestamp[64];
+    
     strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
     fprintf(log, "%s%s\n", timestamp, alert_message);
     fprintf(stdout, "%s%s\n", timestamp, alert_message); // Optional, mirror message
@@ -389,6 +392,17 @@ void log_alert(const char* alert_file,
     }
 
     fclose(log);
+
+
+    FILE* old_history = fopen(OLD_HISTORY_PATH, "a");
+    if (!old_history) {
+        fprintf(stderr, "[ERROR] No se pudo abrir el archivo de alerta %s\n", old_history);
+        return;
+    }
+    fprintf(old_history, "%s%s\n", timestamp, alert_message);
+    fprintf(stdout, "%s%s\n", timestamp, alert_message);
+    mostrar_proceso_modificador(file_itself, old_history);
+    fclose(old_history);
 }
 
 
