@@ -13,11 +13,22 @@ extern MessageQueue* scan_directory(const char *path);
 extern void expand_tilde(const char *input_path, char *expanded_path, size_t size);
 extern void scan_ports(MessageQueue* queue, const char *ip, const char *rango); 
 
-
-
 static gchar *texto_ingresado = NULL; // Variable global para almacenar el texto
 static GtkWidget *alert_text_view;
 static GtkWidget *text_view;  // Declaración global
+static GtkWidget *usbconeccted;  // Nueva caja de texto para eventos USB
+
+
+void append_to_usb(const gchar *text) {
+    GtkTextBuffer *buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(usbconeccted));
+    GtkTextIter end;
+    
+    gtk_text_buffer_get_end_iter(buffer, &end);
+    gtk_text_buffer_insert(buffer, &end, text, -1);
+    
+    // Auto-scroll
+    gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(usbconeccted), &end, 0.0, FALSE, 0.0, 1.0);
+}
 
 //Funcion para printear texto
 void append_to_console(const gchar *text) {
@@ -60,20 +71,6 @@ static void funcion_boton1() {
     }
 }
 
-static void funcion_boton2() {
- // Crear un diálogo de alerta
-    GtkWidget *dialog = gtk_message_dialog_new(
-        NULL,  // Ventana padre (NULL para diálogo independiente)
-        GTK_DIALOG_MODAL,
-        GTK_MESSAGE_WARNING,
-        GTK_BUTTONS_OK,
-        "¡ALERTA! Se ha detectado actividad sospechosa"
-    );
-    
-    gtk_dialog_run(GTK_DIALOG(dialog));  // Mostrar y esperar a que el usuario cierre
-    gtk_widget_destroy(dialog);  // Cerrar el diálogo
-}
-
 static void funcion_boton3() {
     MessageQueue* queue = mq_init();
     
@@ -108,9 +105,6 @@ static void button_clicked(GtkWidget *widget, gpointer data) {
     
     if (g_strcmp0(boton_presionado, "1") == 0) {
         funcion_boton1();
-    } 
-    else if (g_strcmp0(boton_presionado, "2") == 0) {
-        funcion_boton2();
     } 
     else if (g_strcmp0(boton_presionado, "3") == 0) {
         funcion_boton3();
@@ -200,25 +194,20 @@ static void activate(GtkApplication *app, gpointer user_data) {
     
     // Crear botones (igual que antes)
     GtkWidget *button1 = gtk_button_new_with_label("Analizar Ruta de Archivos");
-    GtkWidget *button2 = gtk_button_new_with_label("Botón 2");
     GtkWidget *button3 = gtk_button_new_with_label("Analizar Puertos Locales");
     
     gtk_widget_set_size_request(button1, 200, 40);
-    gtk_widget_set_size_request(button2, 200, 40);
     gtk_widget_set_size_request(button3, 200, 40);
     
     g_signal_connect(button1, "clicked", G_CALLBACK(button_clicked), "1");
-    g_signal_connect(button2, "clicked", G_CALLBACK(button_clicked), "2");
     g_signal_connect(button3, "clicked", G_CALLBACK(button_clicked), "3");
     
     gtk_widget_set_halign(button1, GTK_ALIGN_CENTER);
-    gtk_widget_set_halign(button2, GTK_ALIGN_CENTER);
     gtk_widget_set_halign(button3, GTK_ALIGN_CENTER);
     
     // Añadir elementos al box
     gtk_box_pack_start(GTK_BOX(content_box), entry, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(content_box), button1, FALSE, FALSE, 5);
-    gtk_box_pack_start(GTK_BOX(content_box), button2, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(content_box), button3, FALSE, FALSE, 5);
     
     //Printear Texto
@@ -246,6 +235,22 @@ static void activate(GtkApplication *app, gpointer user_data) {
     // Añadir al layout principal (después de tu consola existente)
     gtk_box_pack_start(GTK_BOX(content_box), alert_label, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(content_box), alert_scrolled, TRUE, TRUE, 5);
+
+    // Crear nueva área de texto para eventos USB
+    GtkWidget *usb_scrolled = gtk_scrolled_window_new(NULL, NULL);
+    usbconeccted = gtk_text_view_new();  // Asignar a la variable global
+    gtk_text_view_set_editable(GTK_TEXT_VIEW(usbconeccted), FALSE);
+    gtk_text_view_set_monospace(GTK_TEXT_VIEW(usbconeccted), TRUE);
+    gtk_container_add(GTK_CONTAINER(usb_scrolled), usbconeccted);
+    gtk_widget_set_size_request(usb_scrolled, -1, 100);  // Altura más pequeña
+
+    // Añadir un label para USB
+    GtkWidget *usb_label = gtk_label_new("Eventos USB:");
+    gtk_label_set_xalign(GTK_LABEL(usb_label), 0.0);
+
+    // Añadir al layout principal
+    gtk_box_pack_start(GTK_BOX(content_box), usb_label, FALSE, FALSE, 5);
+    gtk_box_pack_start(GTK_BOX(content_box), usb_scrolled, TRUE, TRUE, 5);
 
     gtk_widget_show_all(window);
 }
@@ -363,7 +368,7 @@ int main(int argc, char **argv) {
     GtkApplication *app;
     int status;
     
-    app = gtk_application_new("com.example.matcomguard", G_APPLICATION_FLAGS_NONE);
+    app = gtk_application_new("com.example.matcomguard", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
     status = g_application_run(G_APPLICATION(app), argc, argv);
     
