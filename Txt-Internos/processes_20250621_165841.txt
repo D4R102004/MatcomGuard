@@ -1,0 +1,2 @@
+[Alerta] PID 346 | CPU: 8.26 seg | Mem: 107880 KB | IO R/W: 98979840/1560576 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 412 | CPU: 3.62 seg | Mem: 78200 KB | IO R/W: 236957696/188416 bytes | Razones: CPU MEM IOR 
