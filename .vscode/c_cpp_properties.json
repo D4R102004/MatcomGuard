@@ -4,7 +4,9 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/pesquisa"
+                "${workspaceFolder}/pesquisa",
+                "/usr/include/gtk-3.0",
+                "/usr/include/glib-2.0"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",
