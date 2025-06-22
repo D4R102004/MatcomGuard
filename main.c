@@ -9,7 +9,7 @@
 #include "port_scanner.h"
 #include <sys/types.h>
 #include <unistd.h>
-extern MessageQueue* scan_directory(const char *path);
+extern MessageQueue* scan_directory_usb(const char *path);
 extern void expand_tilde(const char *input_path, char *expanded_path, size_t size);
 extern void scan_ports(MessageQueue* queue, const char *ip, const char *rango); 
 
@@ -37,7 +37,7 @@ static void funcion_boton1() {
         char message[256];
         snprintf(message, sizeof(message), "Analizando: %s\n", texto_ingresado);
         append_to_console(message);
-        MessageQueue* result_queue =  scan_directory(texto_ingresado);
+        MessageQueue* result_queue =  scan_directory_usb(texto_ingresado);
         printf("\nResultados del escaneo (%d archivos):\n", mq_count(result_queue));
  while (!mq_is_empty(result_queue)) {
     char* msg = mq_dequeue(result_queue);
