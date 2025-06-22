@@ -365,6 +365,13 @@ int main(int argc, char **argv) {
     }
     
     printf("Monitor ejecutándose en segundo plano (PID: %d)\n", getpid() + 1);
+   
+ // Lanzar el script de monitoreo USB (asegúrate de que sea ejecutable)
+    int result_usb = system("./usb_monitor/monitor.sh &");
+    if (result_usb == -1) {
+        perror("Error al ejecutar monitor.sh");
+        return 1;
+    }
     GtkApplication *app;
     int status;
     
