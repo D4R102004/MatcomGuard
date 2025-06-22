@@ -31,6 +31,43 @@ process_usb() {
     local alert_file="$ALERT_DIR/${device_name}_alerts.txt"
 
     echo "$(date): Nuevo USB detectado: $device_path" >> "$alert_file"
+
+
+    # # Clear existing audit logs
+    # # 🧹 1. Limpiar todas las reglas existentes
+    # sudo auditctl -D
+
+    # # 🧠 2. Agregar regla de monitoreo completa para el directorio
+    # sudo auditctl -a exit,always \
+    # -F dir=$device_path \
+    # -F perm=rwxa \
+    # -F auid>=1000 -F auid!=4294967295 \
+    # -k usb_monitoring
+
+    # # 🔐 3. Agregar syscall adicionales para cambios de permisos y archivos
+    # sudo auditctl -a exit,always -F arch=b64 \
+    # -S chmod -S chown -S fchmod -S fchown -S rename -S unlink \
+    # -F dir=/tmp/test_usb_simulation \
+    # -F auid>=1000 -F auid!=4294967295 \
+    # -k file_permission_changes
+
+    # # ⚙️ 4. Activar auditoría
+    # sudo auditctl -f 1  # En modo fail-silent si falla
+    # sudo auditctl -e 1  # Activar auditoría
+
+    # Clear existing audit logs
+    sudo auditctl -D  # Delete all existing rules
+    
+    # More comprehensive audit rules
+    sudo auditctl -w $device_path -p wa -k usb_monitoring
+    sudo auditctl -a exit,always -F arch=b64 \
+        -S chmod -S chown -S fchmod -S fchown -S rename -S unlink \
+        -k file_permission_changes
+    
+    # Enable more verbose auditing
+    sudo auditctl -f 1  # Fail silently on audit log errors
+    sudo auditctl -e 1  # Enable auditing
+
     
     # 1. Crear baseline
     "$PESQUISA_PATH" "$device_path" >> "$alert_file" 2>&1

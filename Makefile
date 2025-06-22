@@ -5,8 +5,12 @@ LDFLAGS=-lssl -lcrypto -laudit
 TARGET=matguard
 SRC=pesquisa/pesquisa.c
 USB_SCAN=usb_scanning
-USB_SRC=USB_Scanning/usb_scanning.c
+USB_SRC=usb_scanning.c
 TEST_SCRIPT=Tortuga/test_file_modification/test_monitor_usb.sh
+GTK_FLAGS=$(shell pkg-config --cflags gtk+-3.0)
+GTK_LIBS=$(shell pkg-config --libs gtk+-3.0)
+GTK_TARGET=main
+GTK_SRC=main.c usb_scanning.c message_queue.c port_scanner.c
 
 # Test directories
 TEST_USB_DIR=/tmp/test_usb_simulation
@@ -36,5 +40,12 @@ test: $(TARGET)
 clean:
 	rm -f $(TARGET) $(USB_SCAN)
 	rm -rf $(TEST_USB_DIR) $(BASELINE_DIR) $(ALERTS_DIR)
+
+
+
+
+gtk: $(GTK_SRC)
+	$(CC) -o $(GTK_TARGET) $(GTK_SRC) $(GTK_FLAGS) $(GTK_LIBS) -lpthread
+
 
 .PHONY: all clean test

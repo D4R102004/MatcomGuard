@@ -302,24 +302,15 @@ const char* determinar_syscall_por_alerta(const char* mensaje_alerta) {
 }
 
 
-void mostrar_proceso_modificador(const char *archivo,
-                                 const char *syscall) {
+void mostrar_proceso_modificador(const char *archivo, FILE* out) {
     char cmd[512];
-    char buffer[1024];
-
-
-    printf("🔍 Buscando proceso que ejecutó syscall '%s' sobre el archivo '%s'\n", syscall, archivo);
-
-    // We get the most recent syscall-specific audit log entry related to this file
     snprintf(cmd, sizeof(cmd),
-             "/usr/sbin/ausearch -f \"%s\" -sc %s -k usb_monitoring | tac | awk '/^----/ {exit} {print}'",
-             archivo, syscall);
-
-
+             "/usr/sbin/ausearch -f \"%s\" -ts recent 2>/dev/null",
+             archivo);
 
     FILE *fp = popen(cmd, "r");
     if (!fp) {
-        fprintf(stderr, "[DEBUG] popen falló al ejecutar: %s\n", cmd);
+        fprintf(out, "[DEBUG] popen falló al ejecutar: %s\n", cmd);
         return;
     }
 
@@ -331,83 +322,75 @@ void mostrar_proceso_modificador(const char *archivo,
     int in_syscall = 0, encontrado = 0;
 
     while (fgets(line, sizeof(line), fp)) {
-        // Detectamos el inicio del bloque SYSCALL
         if (strstr(line, "type=SYSCALL")) {
             in_syscall = 1;
-            encontrado = 0;  // reiniciamos por si hay varios bloques
+            encontrado = 0;
         }
         if (!in_syscall) continue;
 
-        // Si es PATH, salimos del bloque tras registrarlo
         if (strstr(line, "type=PATH")) {
             break;
         }
 
-        // Extraemos campos
         char *p;
-        if ((p = strstr(line, "comm=\"")) && sscanf(p + 6, "%127[^\"]", comm) == 1) {
+        if ((p = strstr(line, "comm=\"")) && sscanf(p + 6, "%127[^\"]", comm) == 1)
             encontrado = 1;
-        }
-        if ((p = strstr(line, "exe=\"")) && sscanf(p + 5, "%255[^\"]", exe) == 1) {
+        if ((p = strstr(line, "exe=\"")) && sscanf(p + 5, "%255[^\"]", exe) == 1)
             encontrado = 1;
-        }
-        if ((p = strstr(line, "tty=")) && sscanf(p + 4, "%63s", tty) == 1) {
+        if ((p = strstr(line, "tty=")) && sscanf(p + 4, "%63s", tty) == 1)
             encontrado = 1;
-        }
-        if ((p = strstr(line, "uid=")) && sscanf(p + 4, "%31s", uid) == 1) {
+        if ((p = strstr(line, "uid=")) && sscanf(p + 4, "%31s", uid) == 1)
             encontrado = 1;
-        }
     }
 
     pclose(fp);
 
     if (encontrado) {
-        printf("   🔎 Proceso responsable de %s:\n", archivo);
-        printf("      🧠 Comando: %s\n", comm);
-        printf("      📁 Ejecutable: %s\n", exe);
-        printf("      👤 UID: %s\n", uid);
-        printf("      🖥 TTY: %s\n", tty);
-        // Heurística
+        fprintf(out, "   🔎 Ultimo proceso que accedio a %s:\n", archivo);
+        fprintf(out, "      🧠 Comando: %s\n", comm);
+        fprintf(out, "      📁 Ejecutable: %s\n", exe);
+        fprintf(out, "      👤 UID: %s\n", uid);
+        fprintf(out, "      🖥 TTY: %s\n", tty);
+
         if (strcmp(tty, "(no registrado)") != 0 && strcmp(tty, "?") != 0) {
-            printf("      🧍 Probablemente un cambio manual (usuario en terminal)\n");
+            fprintf(out, "      🧍 Probablemente un cambio manual (usuario en terminal)\n");
         } else if (strstr(exe, "bash") || strstr(exe, "sh") || strstr(exe, "python")) {
-            printf("      🤖 Probablemente un script automático\n");
+            fprintf(out, "      🤖 Probablemente un script automático\n");
         } else {
-            printf("      ❓ Origen del cambio: desconocido\n");
+            fprintf(out, "      ❓ Origen del cambio: desconocido\n");
         }
     } else {
-        printf("   ⚠️ No se encontró registro de auditoría para %s\n", archivo);
+        fprintf(out, "   ⚠️ No se encontró registro de auditoría para %s\n", archivo);
     }
 }
+
 // New function to log an alert
 void log_alert(const char* alert_file, 
                 const char* alert_message,
                 const char* file_itself) {
-    // Use a more robust method to prevent duplicate logging
-
-
     printf("Entered with message: %s\n", alert_message);
+
+    FILE* log = fopen(alert_file, "a");
+    if (!log) {
+        fprintf(stderr, "[ERROR] No se pudo abrir el archivo de alerta %s\n", alert_file);
+        return;
+    }
+
+    time_t now = time(NULL);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
+    fprintf(log, "%s%s\n", timestamp, alert_message);
+    fprintf(stdout, "%s%s\n", timestamp, alert_message); // Optional, mirror message
 
     const char *syscall = determinar_syscall_por_alerta(alert_message);
     if (syscall) {
-        mostrar_proceso_modificador(file_itself, syscall);
+        mostrar_proceso_modificador(file_itself, stdout); // Console output
+        mostrar_proceso_modificador(file_itself, log);    // Log output
     }
 
-
-    
-
-    FILE* log = fopen(alert_file, "a");
-    if (log) {
-        time_t now = time(NULL);
-        char timestamp[64];
-        strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
-        fprintf(log, "%s%s\n", timestamp, alert_message);
-        fclose(log);
-    }
-
-
-    
+    fclose(log);
 }
+
 
 #define MAX_ALERT_SIZE 8192
 
