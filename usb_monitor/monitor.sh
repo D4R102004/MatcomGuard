@@ -87,8 +87,8 @@ while true; do
     for usb_dir in "$USB_MOUNT_DIR"/*; do
         # Verificar: Es directorio, no es enlace simbólico y no está en la lista de ignorados
         if [[ -d "$usb_dir" && ! -L "$usb_dir" ]]; then
-            should_ignore=0
-            for ignore_dir in "${IGNORE_DIRS[@]}"; do
+            should_ignore=0D
+            for ignore_dir in "${IGNORE_IRS[@]}"; do
                 if [[ "$usb_dir" == "$ignore_dir" ]]; then
                     should_ignore=1
                     break

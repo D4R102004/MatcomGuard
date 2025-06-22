@@ -243,3 +243,5 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
+gcc `pkg-config --cflags gtk+-3.0` -o main     main.c     usb_scanning.c     message_queue.c     port_scanner.c     `pkg-config --libs gtk+-3.0` -lpthread
