@@ -1,0 +1,68 @@
+[Alerta] PID 1 | CPU: 4.78 seg | Mem: 6740 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 16 | CPU: 2.30 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 17 | CPU: 9.91 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 30 | CPU: 2.95 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 36 | CPU: 2.66 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 51 | CPU: 5.56 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 68 | CPU: 57.64 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 73 | CPU: 1.93 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 197 | CPU: 2.73 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 322 | CPU: 1.40 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 357 | CPU: 2.38 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 498 | CPU: 1.79 seg | Mem: 4096 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 502 | CPU: 1.16 seg | Mem: 1284 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 651 | CPU: 4.83 seg | Mem: 3584 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 653 | CPU: 3.52 seg | Mem: 11464 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 664 | CPU: 8.15 seg | Mem: 6700 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 670 | CPU: 1.32 seg | Mem: 1792 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 681 | CPU: 10.65 seg | Mem: 21992 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 684 | CPU: 1.30 seg | Mem: 7852 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 1081 | CPU: 22.15 seg | Mem: 8240 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 2051 | CPU: 1.70 seg | Mem: 14636 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 3898 | CPU: 2.83 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 4317 | CPU: 1.95 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 4969 | CPU: 1.65 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 5021 | CPU: 6.08 seg | Mem: 43136 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 5028 | CPU: 5.07 seg | Mem: 2560 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 5041 | CPU: 1.06 seg | Mem: 3036 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 6164 | CPU: 1.05 seg | Mem: 4856 KB | IO R/W: 102300672/111202304 bytes | Razones: CPU IOR IOW 
+[Alerta] PID 6174 | CPU: 3.55 seg | Mem: 9796 KB | IO R/W: 6471680/8192 bytes | Razones: CPU 
+[Alerta] PID 6197 | CPU: 1.95 seg | Mem: 3712 KB | IO R/W: 1036288/0 bytes | Razones: CPU 
+[Alerta] PID 6314 | CPU: 0.20 seg | Mem: 5120 KB | IO R/W: 13303808/0 bytes | Razones: IOR 
+[Alerta] PID 6323 | CPU: 0.36 seg | Mem: 5120 KB | IO R/W: 10676224/4096 bytes | Razones: IOR 
+[Alerta] PID 6346 | CPU: 951.81 seg | Mem: 274856 KB | IO R/W: 212602880/45056 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 6390 | CPU: 0.43 seg | Mem: 5632 KB | IO R/W: 17231872/0 bytes | Razones: IOR 
+[Alerta] PID 6633 | CPU: 1.43 seg | Mem: 5772 KB | IO R/W: 2957312/0 bytes | Razones: CPU 
+[Alerta] PID 6718 | CPU: 4.28 seg | Mem: 7852 KB | IO R/W: 37902336/0 bytes | Razones: CPU IOR 
+[Alerta] PID 6810 | CPU: 0.97 seg | Mem: 7332 KB | IO R/W: 11808768/0 bytes | Razones: IOR 
+[Alerta] PID 6823 | CPU: 1.09 seg | Mem: 10992 KB | IO R/W: 8630272/245760 bytes | Razones: CPU 
+[Alerta] PID 6873 | CPU: 3.54 seg | Mem: 38872 KB | IO R/W: 15740928/0 bytes | Razones: CPU IOR 
+[Alerta] PID 6959 | CPU: 121.66 seg | Mem: 299512 KB | IO R/W: 536724480/187723776 bytes | Razones: CPU MEM IOR IOW 
+[Alerta] PID 7540 | CPU: 4.28 seg | Mem: 75620 KB | IO R/W: 43383808/0 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 7583 | CPU: 72.32 seg | Mem: 256460 KB | IO R/W: 95912960/0 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 7654 | CPU: 2.19 seg | Mem: 8012 KB | IO R/W: 7894016/0 bytes | Razones: CPU 
+[Alerta] PID 7795 | CPU: 2.24 seg | Mem: 40436 KB | IO R/W: 13438976/0 bytes | Razones: CPU IOR 
+[Alerta] PID 7917 | CPU: 0.10 seg | Mem: 27776 KB | IO R/W: 10966016/0 bytes | Razones: IOR 
+[Alerta] PID 7940 | CPU: 8.92 seg | Mem: 281912 KB | IO R/W: 19368960/0 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 8058 | CPU: 1.25 seg | Mem: 10820 KB | IO R/W: 819200/0 bytes | Razones: CPU 
+[Alerta] PID 8339 | CPU: 11.43 seg | Mem: 61364 KB | IO R/W: 34844672/163840 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 8450 | CPU: 59.47 seg | Mem: 158124 KB | IO R/W: 129503232/20586496 bytes | Razones: CPU MEM IOR IOW 
+[Alerta] PID 8478 | CPU: 31.14 seg | Mem: 22936 KB | IO R/W: 6332416/32768 bytes | Razones: CPU 
+[Alerta] PID 8527 | CPU: 151.46 seg | Mem: 90292 KB | IO R/W: 46190592/0 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 8532 | CPU: 3.58 seg | Mem: 26708 KB | IO R/W: 8146944/184320 bytes | Razones: CPU 
+[Alerta] PID 8556 | CPU: 336.32 seg | Mem: 396128 KB | IO R/W: 160587776/126976 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 8571 | CPU: 154.37 seg | Mem: 331652 KB | IO R/W: 191823872/18972672 bytes | Razones: CPU MEM IOR IOW 
+[Alerta] PID 8581 | CPU: 10.02 seg | Mem: 46944 KB | IO R/W: 48414720/8192 bytes | Razones: CPU IOR 
+[Alerta] PID 8582 | CPU: 5.66 seg | Mem: 36524 KB | IO R/W: 11952128/0 bytes | Razones: CPU IOR 
+[Alerta] PID 8621 | CPU: 20.42 seg | Mem: 51340 KB | IO R/W: 151789568/2084864 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 8677 | CPU: 1.96 seg | Mem: 23392 KB | IO R/W: 15773696/0 bytes | Razones: CPU IOR 
+[Alerta] PID 8724 | CPU: 17.74 seg | Mem: 44528 KB | IO R/W: 107053056/25116672 bytes | Razones: CPU IOR IOW 
+[Alerta] PID 9019 | CPU: 2.67 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 9028 | CPU: 1.00 seg | Mem: 76416 KB | IO R/W: 21737472/0 bytes | Razones: MEM IOR 
+[Alerta] PID 9123 | CPU: 440.08 seg | Mem: 789432 KB | IO R/W: 11644928/1146880 bytes | Razones: CPU MEM IOR 
+[Alerta] PID 9155 | CPU: 1.00 seg | Mem: 77424 KB | IO R/W: 105472/0 bytes | Razones: MEM 
+[Alerta] PID 9386 | CPU: 4.37 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 11421 | CPU: 1.01 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 12190 | CPU: 1.04 seg | Mem: 0 KB | IO R/W: 0/0 bytes | Razones: CPU 
+[Alerta] PID 12783 | CPU: 0.14 seg | Mem: 6528 KB | IO R/W: 31227904/3948544 bytes | Razones: IOR 
+[Alerta] PID 13236 | CPU: 1.89 seg | Mem: 64232 KB | IO R/W: 43433984/24576 bytes | Razones: CPU MEM IOR 

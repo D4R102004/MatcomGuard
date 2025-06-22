@@ -114,7 +114,7 @@ void sha256sum(const char* filename, char* hash_str) {
     EVP_MD_CTX_free(mdctx);
 }
 
-void scan_directory(const char* path, Baseline* base) {
+void scan_directory_pesquisa(const char* path, Baseline* base) {
     DIR* dir = opendir(path);
     if (!dir) {
         // Add error logging
@@ -144,7 +144,7 @@ void scan_directory(const char* path, Baseline* base) {
         }
 
         if (S_ISDIR(st.st_mode)) {
-            scan_directory(full_path, base);
+            scan_directory_pesquisa(full_path, base);
         } else if (S_ISREG(st.st_mode)) {
             FileInfo* info = &base->files[base->count++];
             strncpy(info->path, full_path, MAX_PATH);
@@ -364,6 +364,8 @@ void mostrar_proceso_modificador(const char *archivo, FILE* out) {
     }
 }
 
+#define OLD_HISTORY_PATH "/tmp/old_history/history.txt"
+
 // New function to log an alert
 void log_alert(const char* alert_file, 
                 const char* alert_message,
@@ -378,6 +380,7 @@ void log_alert(const char* alert_file,
 
     time_t now = time(NULL);
     char timestamp[64];
+    
     strftime(timestamp, sizeof(timestamp), "[%a %b %d %H:%M:%S %Y] ", localtime(&now));
     fprintf(log, "%s%s\n", timestamp, alert_message);
     fprintf(stdout, "%s%s\n", timestamp, alert_message); // Optional, mirror message
@@ -389,6 +392,17 @@ void log_alert(const char* alert_file,
     }
 
     fclose(log);
+
+
+    FILE* old_history = fopen(OLD_HISTORY_PATH, "a");
+    if (!old_history) {
+        fprintf(stderr, "[ERROR] No se pudo abrir el archivo de alerta %s\n", old_history);
+        return;
+    }
+    fprintf(old_history, "%s%s\n", timestamp, alert_message);
+    fprintf(stdout, "%s%s\n", timestamp, alert_message);
+    mostrar_proceso_modificador(file_itself, old_history);
+    fclose(old_history);
 }
 
 
@@ -866,7 +880,7 @@ int main(int argc, char* argv[]) {
     if (access(baseline_path, F_OK) != -1) {
         load_baseline(baseline_path, &base);
     } else {
-        scan_directory(path, &base);
+        scan_directory_pesquisa(path, &base);
         save_baseline(baseline_path, &base);
         // printf("Baseline creado (%d archivos).\n", base.count);
         return 0;
@@ -874,7 +888,7 @@ int main(int argc, char* argv[]) {
 
     if (argc == 3 && strcmp(argv[2], "monitor") == 0) {
         if (access(baseline_path, F_OK) == -1) {
-            scan_directory(path, &base);
+            scan_directory_pesquisa(path, &base);
             save_baseline(baseline_path, &base);
         } else {
             load_baseline(baseline_path, &base);
@@ -884,7 +898,7 @@ int main(int argc, char* argv[]) {
         while(1)
         {
             Baseline current_baseline = {0};
-            scan_directory(path, &current_baseline);
+            scan_directory_pesquisa(path, &current_baseline);
 
             check_for_anomalies(
                 &base,

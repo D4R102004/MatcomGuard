@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "libgen.h": "c",
-        "antiguoprocesomodificador": "c"
+        "antiguoprocesomodificador": "c",
+        "antiguapesquisa": "c"
     }
 }

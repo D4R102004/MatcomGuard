@@ -8,7 +8,7 @@
 #define MAX_FINAL_MSG_SIZE 2048  // Tamaño suficiente
 
 // Función recursiva modificada para usar MessageQueue
-MessageQueue* scan_directory(const char *path) {
+MessageQueue* scan_directory_usb(const char *path) {
     MessageQueue* queue = mq_init();  // Crear cola para almacenar mensajes
     
     DIR *dir = opendir(path);
@@ -35,7 +35,7 @@ MessageQueue* scan_directory(const char *path) {
 
         if (S_ISDIR(file_stat.st_mode)) {
             // Procesar subdirectorio recursivamente
-            MessageQueue* sub_queue = scan_directory(full_path);
+            MessageQueue* sub_queue = scan_directory_usb(full_path);
             
             // Combinar resultados de subdirectorios
             while (!mq_is_empty(sub_queue)) {
