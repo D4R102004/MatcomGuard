@@ -77,42 +77,6 @@ typedef struct {
     int count;
 } Baseline;
 
-// Modify sha256sum to use hex representation
-void sha256sum(const char* filename, char* hash_str) {
-    EVP_MD_CTX *mdctx;
-    const EVP_MD *md;
-    unsigned int md_len;
-    FILE *file;
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    unsigned char buffer[4096];
-    size_t bytes;
-
-    md = EVP_sha256();
-    mdctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(mdctx, md, NULL);
-
-    file = fopen(filename, "rb");
-    if (file == NULL) {
-        EVP_MD_CTX_free(mdctx);
-        strcpy(hash_str, "");  // Empty string on error
-        return;
-    }
-
-    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
-        EVP_DigestUpdate(mdctx, buffer, bytes);
-    }
-
-    EVP_DigestFinal_ex(mdctx, hash, &md_len);
-
-    // Convert to hex string
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        sprintf(hash_str + (i * 2), "%02x", hash[i]);
-    }
-    hash_str[SHA256_DIGEST_LENGTH * 2] = '\0';
-
-    fclose(file);
-    EVP_MD_CTX_free(mdctx);
-}
 
 void scan_directory_pesquisa(const char* path, Baseline* base) {
     DIR* dir = opendir(path);
@@ -289,17 +253,6 @@ void log_alert_light(const char* alert_file, const char* alert_message)
     }
 }
 
-const char* determinar_syscall_por_alerta(const char* mensaje_alerta) {
-    if (strstr(mensaje_alerta, "Cambio significativo de tamaño")) return "write";
-    if (strstr(mensaje_alerta, "Cambio de extensión")) return "rename";
-    if (strstr(mensaje_alerta, "Cambio de permisos")) return "chmod";
-    if (strstr(mensaje_alerta, "Cambio de propietario")) return "chown";
-    if (strstr(mensaje_alerta, "Archivo modificado")) return "write";
-    if (strstr(mensaje_alerta, "Archivo eliminado")) return "unlink";
-    if (strstr(mensaje_alerta, "Nuevo archivo")) return "open";
-    if (strstr(mensaje_alerta, "Archivo duplicado")) return "write";
-    return NULL;
-}
 
 
 void mostrar_proceso_modificador(const char *archivo, FILE* out) {
@@ -385,11 +338,10 @@ void log_alert(const char* alert_file,
     fprintf(log, "%s%s\n", timestamp, alert_message);
     fprintf(stdout, "%s%s\n", timestamp, alert_message); // Optional, mirror message
 
-    const char *syscall = determinar_syscall_por_alerta(alert_message);
-    if (syscall) {
-        mostrar_proceso_modificador(file_itself, stdout); // Console output
-        mostrar_proceso_modificador(file_itself, log);    // Log output
-    }
+
+    mostrar_proceso_modificador(file_itself, stdout); // Console output
+    mostrar_proceso_modificador(file_itself, log);    // Log output
+    
 
     fclose(log);
 
@@ -408,13 +360,6 @@ void log_alert(const char* alert_file,
 
 #define MAX_ALERT_SIZE 8192
 
-// Función auxiliar para quitar el timestamp (asume formato [XXX])
-void strip_timestamp(char* alert) {
-    char* start = strchr(alert, ']');
-    if (start && *(start + 1) == ' ') {
-        memmove(alert, start + 2, strlen(start + 2) + 1); // +1 to copy null terminator
-    }
-}
 
 // Función para verificar si un mensaje ya está registrado
 int is_alert_logged(const char* alert_file, const char* alert_message) {
@@ -487,34 +432,6 @@ int is_alert_logged(const char* alert_file, const char* alert_message) {
     return 0;
 }
 
-int are_files_similar(FileInfo* file1, FileInfo* file2) {
-    // Compare base names first
-    char* base1 = basename(file1->path);
-    char* base2 = basename(file2->path);
-
-    // If base names are different, they're not the same file
-    if (strcmp(base1, base2) != 0) {
-        return 0;
-    }
-
-    // Additional checks to reduce false positives
-    // Compare file hash to ensure content similarity
-    if (strcmp(file1->hash, file2->hash) == 0) {
-        return 1;
-    }
-
-    // Optional: Add directory path similarity check
-    char* dir1 = dirname(file1->path);
-    char* dir2 = dirname(file2->path);
-
-    // If directories are completely different, be more strict
-    if (strcmp(dir1, dir2) != 0) {
-        // Only consider as similar if file contents are identical
-        return (strcmp(file1->hash, file2->hash) == 0);
-    }
-
-    return 0;
-}
 
 // Modify the basename matching logic to be more robust
 int is_same_file(const char* old_path, const char* new_path) {
@@ -771,91 +688,6 @@ int check_for_anomalies(Baseline* baseline,
     free(matched);
     return suspicious;
 }
-
-void check_for_anomalies_with_process(Baseline* baseline, Baseline* current, 
-                                      const char* path, 
-                                      pid_t pid, 
-                                      const char* exe_path, 
-                                      const char* cmdline, 
-                                      uint64_t event_mask) {
-    // First, check for anomalies in the file
-    int initial_suspicious = check_for_anomalies(baseline, current);
-    
-    // If anomalies were found, log additional process information
-
-    
-}
-
-// Structure to hold process details
-typedef struct {
-    pid_t pid;
-    char exe_path[PATH_MAX];
-    char cmdline[PATH_MAX];
-} ProcessInfo;
-
-// Function to get detailed process information
-void get_process_info(pid_t pid, ProcessInfo* process_info) {
-    process_info->pid = pid;
-    
-    // Get executable path
-    char exe_link[PATH_MAX];
-    snprintf(exe_link, sizeof(exe_link), "/proc/%d/exe", pid);
-    ssize_t len = readlink(exe_link, process_info->exe_path, sizeof(process_info->exe_path) - 1);
-    if (len != -1) {
-        process_info->exe_path[len] = '\0';
-    } else {
-        strncpy(process_info->exe_path, "unknown", sizeof(process_info->exe_path));
-    }
-    
-    // Get command line
-    char cmdline_path[PATH_MAX];
-    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
-    FILE* cmdline_file = fopen(cmdline_path, "r");
-    if (cmdline_file) {
-        size_t bytes_read = fread(process_info->cmdline, 1, sizeof(process_info->cmdline) - 1, cmdline_file);
-        process_info->cmdline[bytes_read] = '\0';
-        fclose(cmdline_file);
-    } else {
-        strncpy(process_info->cmdline, "unknown", sizeof(process_info->cmdline));
-    }
-}
-
-// Add these headers at the top of your file
-#include <sys/statfs.h>  // For statfs()
-
-// Helper to detect if a path is a mount point
-int is_mount_point(const char *path) {
-    struct stat st_path, st_parent;
-    char parent_path[PATH_MAX];
-    
-    if (stat(path, &st_path) != 0) return 0;
-
-    snprintf(parent_path, sizeof(parent_path), "%s/..", path);
-    if (stat(parent_path, &st_parent) != 0) return 0;
-
-    // If the device or inode is different, it's a mount point
-    return st_path.st_dev != st_parent.st_dev || st_path.st_ino == st_parent.st_ino;
-}
-
-// Helper function to extract a field from an audit message line
-char* extract_value(const char* data, const char* key) {
-    char* pos = strstr(data, key);
-    if (!pos) return NULL;
-    pos += strlen(key);
-    char* end = strchr(pos, ' ');
-    if (end) {
-        size_t len = end - pos;
-        char* result = malloc(len + 1);
-        strncpy(result, pos, len);
-        result[len] = '\0';
-        return result;
-    }
-    return strdup(pos);
-}
-
-
-
-
 
 // MAIN
 int main(int argc, char* argv[]) {

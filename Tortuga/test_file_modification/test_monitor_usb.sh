@@ -7,6 +7,15 @@ ALERTS_DIR="${ALERTS_DIR:-/tmp/usb_alerts}"
 HISTORY_DIR="${HISTORY_DIR:-/tmp/old_history}"
 MATGUARD_PATH="${MATGUARD_PATH:-./matguard}"
 
+# Configuration
+TEST_USB_DIR="/media/$USER/test_usb_simulation"
+BASELINE_DIR="/tmp/usb_baselines"
+ALERTS_DIR="/tmp/usb_alerts"
+HISTORY_DIR="/tmp/old_history"
+SCANNED_LIST="/tmp/scanned_usb.list"
+HISTORY_TXT="/tmp/old_history/history.txt"
+START_UI_SCRIPT="./start_ui.sh"
+
 # Clean previous test runs
 cleanup() {
     echo "Cleaning up test environment..."
