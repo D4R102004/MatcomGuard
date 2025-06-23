@@ -50,3 +50,6 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Ignore all process logs
+Txt-Internos/processes_*.txt
