@@ -5,6 +5,9 @@
 
 El sistema está desarrollado principalmente en **C**, aprovechando su eficiencia en interacción con el kernel de UNIX, y utiliza **scripts de Bash** para automatizar procesos como la compilación y el arranque del sistema. Además, incorpora bibliotecas como **GTK** para proporcionar una interfaz gráfica de usuario (GUI) intuitiva.  
 
+![Diagrama de MatCom Guard](/Readmeimage.png)  
+*Figura 1: Sistema MatComGuard*
+
 ## **Funcionalidades**  
 
 ### **1. Detección y Escaneo de Dispositivos Conectados (USB)**  
